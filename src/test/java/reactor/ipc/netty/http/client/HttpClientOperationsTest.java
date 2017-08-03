@@ -28,7 +28,7 @@ import io.netty.util.concurrent.Future;
 import org.junit.Test;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Mono;
-import reactor.ipc.netty.NettyContext;
+import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyPipeline;
 import reactor.ipc.netty.channel.ContextHandler;
 
@@ -44,17 +44,12 @@ public class HttpClientOperationsTest {
 
 	ContextHandler<Channel> handler = new ContextHandler<Channel>((a, b, c) -> null, null, null, null, null) {
 		@Override
-		public void fireContextActive(NettyContext context) {
+		public void fireContextActive(Connection context) {
 
 		}
 
 		@Override
 		public void setFuture(Future<?> future) {
-
-		}
-
-		@Override
-		protected void doPipeline(Channel channel) {
 
 		}
 

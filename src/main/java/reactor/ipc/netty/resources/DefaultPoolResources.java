@@ -21,7 +21,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
@@ -60,7 +59,7 @@ final class DefaultPoolResources implements PoolResources {
 
 	@Override
 	public ChannelPool selectOrCreate(SocketAddress remote,
-			Supplier<? extends Bootstrap> bootstrap,
+			Bootstrap b,
 			Consumer<? super Channel> onChannelCreate,
 			EventLoopGroup group) {
 		SocketAddress address = remote;
@@ -69,8 +68,7 @@ final class DefaultPoolResources implements PoolResources {
 			if (pool != null) {
 				return pool;
 			}
-			Bootstrap b = bootstrap.get();
-			if (remote != null) {
+						if (remote != null) {
 				b = b.remoteAddress(remote);
 			}
 			else {

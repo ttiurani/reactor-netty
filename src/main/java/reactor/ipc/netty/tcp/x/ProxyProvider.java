@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.options;
+package reactor.ipc.netty.tcp.x;
 
 import java.net.InetSocketAddress;
 import java.util.Objects;
@@ -32,24 +32,24 @@ import io.netty.handler.proxy.Socks5ProxyHandler;
  *
  * @author Violeta Georgieva
  */
-public class ClientProxyOptions {
+public final class ProxyProvider {
 
 	/**
-	 * Creates a builder for {@link ClientProxyOptions ClientProxyOptions}
+	 * Creates a builder for {@link ProxyProvider ProxyProvider}
 	 *
-	 * @return a new ClientProxyOptions builder
+	 * @return a new ProxyProvider builder
 	 */
-	public static ClientProxyOptions.TypeSpec builder() {
-		return new ClientProxyOptions.Build();
+	public static ProxyProvider.TypeSpec builder() {
+		return new ProxyProvider.Build();
 	}
 
-	private final String username;
-	private final Function<? super String, ? extends String> password;
-	private final Supplier<? extends InetSocketAddress> address;
-	private final Pattern nonProxyHosts;
-	private final Proxy type;
+	final String username;
+	final Function<? super String, ? extends String> password;
+	final Supplier<? extends InetSocketAddress> address;
+	final Pattern nonProxyHosts;
+	final Proxy type;
 
-	private ClientProxyOptions(ClientProxyOptions.Build builder) {
+	ProxyProvider(ProxyProvider.Build builder) {
 		this.username = builder.username;
 		this.password = builder.password;
 		if (Objects.isNull(builder.address)) {
@@ -145,19 +145,19 @@ public class ClientProxyOptions {
 
 	@Override
 	public String toString() {
-		return "ClientProxyOptions{" + asDetailedString() + "}";
+		return "ProxyProvider{" + asDetailedString() + "}";
 	}
 
-	private static final class Build implements TypeSpec, AddressSpec, Builder {
-		private String username;
-		private Function<? super String, ? extends String> password;
-		private String host;
-		private int port;
-		private Supplier<? extends InetSocketAddress> address;
-		private String nonProxyHosts;
-		private Proxy type;
+	static final class Build implements TypeSpec, AddressSpec, Builder {
+		String username;
+		Function<? super String, ? extends String> password;
+		String host;
+		int port;
+		Supplier<? extends InetSocketAddress> address;
+		String nonProxyHosts;
+		Proxy type;
 
-		private Build() {
+		Build() {
 		}
 
 		@Override
@@ -213,8 +213,8 @@ public class ClientProxyOptions {
 		}
 
 		@Override
-		public ClientProxyOptions build() {
-			return new ClientProxyOptions(this);
+		public ProxyProvider build() {
+			return new ProxyProvider(this);
 		}
 	}
 
@@ -226,7 +226,7 @@ public class ClientProxyOptions {
 		 * @param type The proxy type.
 		 * @return {@code this}
 		 */
-		public AddressSpec type(Proxy type);
+		AddressSpec type(Proxy type);
 	}
 
 	public interface AddressSpec {
@@ -237,7 +237,7 @@ public class ClientProxyOptions {
 		 * @param host The proxy host to connect to.
 		 * @return {@code this}
 		 */
-		public Builder host(String host);
+		Builder host(String host);
 
 		/**
 		 * The address to connect to.
@@ -245,7 +245,7 @@ public class ClientProxyOptions {
 		 * @param address The address to connect to.
 		 * @return {@code this}
 		 */
-		public Builder address(InetSocketAddress address);
+		Builder address(InetSocketAddress address);
 
 		/**
 		 * The supplier for the address to connect to.
@@ -253,7 +253,7 @@ public class ClientProxyOptions {
 		 * @param addressSupplier The supplier for the address to connect to.
 		 * @return {@code this}
 		 */
-		public Builder address(Supplier<? extends InetSocketAddress> addressSupplier);
+		Builder address(Supplier<? extends InetSocketAddress> addressSupplier);
 	}
 
 	public interface Builder {
@@ -264,7 +264,7 @@ public class ClientProxyOptions {
 		 * @param username The proxy username.
 		 * @return {@code this}
 		 */
-		public Builder username(String username);
+		Builder username(String username);
 
 		/**
 		 * A function to supply the proxy's password from the username.
@@ -272,7 +272,7 @@ public class ClientProxyOptions {
 		 * @param password A function to supply the proxy's password from the username.
 		 * @return {@code this}
 		 */
-		public Builder password(Function<? super String, ? extends String> password);
+		Builder password(Function<? super String, ? extends String> password);
 
 		/**
 		 * The proxy port to connect to.
@@ -280,7 +280,7 @@ public class ClientProxyOptions {
 		 * @param port The proxy port to connect to.
 		 * @return {@code this}
 		 */
-		public Builder port(int port);
+		Builder port(int port);
 
 		/**
 		 * Regular expression (<code>using java.util.regex</code>) for a configured
@@ -290,13 +290,13 @@ public class ClientProxyOptions {
 		 * for a configured list of hosts that should be reached directly, bypassing the proxy.
 		 * @return {@code this}
 		 */
-		public Builder nonProxyHosts(String nonProxyHostsPattern);
+		Builder nonProxyHosts(String nonProxyHostsPattern);
 
 		/**
-		 * Builds new ClientProxyOptions
+		 * Builds new ProxyProvider
 		 *
-		 * @return builds new ClientProxyOptions
+		 * @return builds new ProxyProvider
 		 */
-		public ClientProxyOptions build();
+		ProxyProvider build();
 	}
 }

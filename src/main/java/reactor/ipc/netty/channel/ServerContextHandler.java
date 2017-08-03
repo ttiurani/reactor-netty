@@ -17,35 +17,24 @@
 package reactor.ipc.netty.channel;
 
 import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 
 import io.netty.channel.Channel;
 import io.netty.channel.socket.DatagramChannel;
 import io.netty.channel.socket.ServerSocketChannel;
 import io.netty.channel.socket.SocketChannel;
-import io.netty.handler.logging.LoggingHandler;
-import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoSink;
-import reactor.ipc.netty.FutureMono;
-import reactor.ipc.netty.NettyContext;
-import reactor.ipc.netty.options.ServerOptions;
+import reactor.ipc.netty.Connection;
 
 /**
  *
  * @author Stephane Maldini
  */
 final class ServerContextHandler extends CloseableContextHandler<Channel>
-		implements NettyContext {
-
-	final ServerOptions serverOptions;
+		implements Connection {
 
 	ServerContextHandler(ChannelOperations.OnNew<Channel> channelOpFactory,
-			ServerOptions options,
-			MonoSink<NettyContext> sink,
-			LoggingHandler loggingHandler,
-			SocketAddress providedAddress) {
-		super(channelOpFactory, options, sink, loggingHandler, providedAddress);
-		this.serverOptions = options;
+			MonoSink<Connection> sink) {
+		super(channelOpFactory, sink);
 	}
 
 	@Override
@@ -54,7 +43,7 @@ final class ServerContextHandler extends CloseableContextHandler<Channel>
 	}
 
 	@Override
-	public final void fireContextActive(NettyContext context) {
+	public final void fireContextActive(Connection context) {
 		//Ignore, child channels cannot trigger context innerActive
 	}
 
@@ -86,7 +75,7 @@ final class ServerContextHandler extends CloseableContextHandler<Channel>
 	}
 
 	@Override
-	public NettyContext onClose(Runnable onClose) {
+	public Connection onClose(Runnable onClose) {
 		onClose().subscribe(null, e -> onClose.run(), onClose);
 		return this;
 	}
@@ -108,13 +97,8 @@ final class ServerContextHandler extends CloseableContextHandler<Channel>
 		     .isActive()) {
 			return;
 		}
-		if(!NettyContext.isPersistent(channel)){
+		if(!Connection.isPersistent(channel)){
 			channel.close();
 		}
-	}
-
-	@Override
-	protected void doPipeline(Channel ch) {
-		addSslAndLogHandlers(options, this, loggingHandler, true, getSNI(), ch.pipeline());
 	}
 }

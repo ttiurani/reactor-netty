@@ -20,7 +20,6 @@ import java.net.SocketAddress;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
@@ -150,7 +149,7 @@ public class TcpResources implements PoolResources, LoopResources {
 
 	@Override
 	public ChannelPool selectOrCreate(SocketAddress address,
-			Supplier<? extends Bootstrap> bootstrap,
+			Bootstrap bootstrap,
 			Consumer<? super Channel> onChannelCreate,
 			EventLoopGroup group) {
 		return defaultPools.selectOrCreate(address, bootstrap, onChannelCreate, group);

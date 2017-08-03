@@ -26,8 +26,8 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import reactor.ipc.netty.options.ClientOptions;
-import reactor.ipc.netty.options.ClientProxyOptions;
-import reactor.ipc.netty.options.ClientProxyOptions.Proxy;
+import reactor.ipc.netty.tcp.x.ProxyProvider;
+import reactor.ipc.netty.tcp.x.ProxyProvider.Proxy;
 
 /**
  * An http client connector builder with low-level connection options including
@@ -188,7 +188,7 @@ public final class HttpClientOptions extends ClientOptions {
 		 * @param proxyOptions the HTTP proxy configuration
 		 * @return {@code this}
 		 */
-		public final Builder httpProxy(Function<ClientProxyOptions.AddressSpec, ClientProxyOptions.Builder> proxyOptions) {
+		public final Builder httpProxy(Function<ProxyProvider.AddressSpec, ProxyProvider.Builder> proxyOptions) {
 			super.proxy(t -> proxyOptions.apply(t.type(Proxy.HTTP)));
 			return get();
 		}

@@ -17,19 +17,16 @@
 package reactor.ipc.netty.channel;
 
 import java.io.IOException;
-import java.net.SocketAddress;
 import java.util.Objects;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
-import io.netty.handler.logging.LoggingHandler;
 import io.netty.util.concurrent.Future;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.MonoSink;
+import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.FutureMono;
-import reactor.ipc.netty.NettyContext;
-import reactor.ipc.netty.options.NettyOptions;
 import reactor.util.Logger;
 import reactor.util.Loggers;
 
@@ -46,11 +43,8 @@ abstract class CloseableContextHandler<CHANNEL extends Channel>
 	ChannelFuture f;
 
 	CloseableContextHandler(ChannelOperations.OnNew<CHANNEL> channelOpFactory,
-			NettyOptions<?, ?> options,
-			MonoSink<NettyContext> sink,
-			LoggingHandler loggingHandler,
-			SocketAddress providedAddress) {
-		super(channelOpFactory, options, sink, loggingHandler, providedAddress);
+			MonoSink<Connection> sink) {
+		super(channelOpFactory, sink);
 	}
 
 	@Override

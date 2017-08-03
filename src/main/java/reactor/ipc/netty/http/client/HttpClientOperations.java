@@ -62,8 +62,8 @@ import reactor.core.Exceptions;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Operators;
+import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.FutureMono;
-import reactor.ipc.netty.NettyContext;
 import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.NettyPipeline;
 import reactor.ipc.netty.channel.ContextHandler;
@@ -223,7 +223,7 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 	}
 
 	@Override
-	public HttpClientOperations context(Consumer<NettyContext> contextCallback) {
+	public HttpClientOperations context(Consumer<Connection> contextCallback) {
 		contextCallback.accept(context());
 		return this;
 	}
@@ -394,7 +394,7 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 			}
 
 			@Override
-			public NettyContext context() {
+			public Connection context() {
 				return HttpClientOperations.this;
 			}
 
@@ -467,7 +467,6 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 
 	@Override
 	protected void onHandlerStart() {
-		applyHandler();
 	}
 
 	@Override
@@ -489,7 +488,7 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 
 	@Override
 	protected void onOutboundError(Throwable err) {
-		if(NettyContext.isPersistent(channel()) && responseState == null){
+		if(Connection.isPersistent(channel()) && responseState == null){
 			parentContext().fireContextError(err);
 			onHandlerTerminate();
 			return;

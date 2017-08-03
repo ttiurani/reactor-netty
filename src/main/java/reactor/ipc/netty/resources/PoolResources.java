@@ -18,7 +18,6 @@ package reactor.ipc.netty.resources;
 
 import java.net.SocketAddress;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
@@ -154,7 +153,7 @@ public interface PoolResources extends Disposable {
 	 * @return an existing or new {@link ChannelPool}
 	 */
 	ChannelPool selectOrCreate(SocketAddress address,
-			Supplier<? extends Bootstrap> bootstrap,
+			Bootstrap bootstrap,
 			Consumer<? super Channel> onChannelCreate,
 			EventLoopGroup group);
 

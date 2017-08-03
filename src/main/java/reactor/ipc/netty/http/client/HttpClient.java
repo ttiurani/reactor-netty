@@ -41,8 +41,8 @@ import io.netty.handler.logging.LoggingHandler;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoSink;
+import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyConnector;
-import reactor.ipc.netty.NettyContext;
 import reactor.ipc.netty.NettyInbound;
 import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.NettyPipeline;
@@ -375,7 +375,7 @@ public class HttpClient implements NettyConnector<HttpClientResponse, HttpClient
 		}
 
 		@Override
-		protected Mono<NettyContext> newHandler(BiFunction<? super NettyInbound, ? super NettyOutbound, ? extends Publisher<Void>> handler,
+		protected Mono<Connection> newHandler(BiFunction<? super NettyInbound, ? super NettyOutbound, ? extends Publisher<Void>> handler,
 				InetSocketAddress address,
 				boolean secure,
 				Consumer<? super Channel> onSetup) {
@@ -384,7 +384,7 @@ public class HttpClient implements NettyConnector<HttpClientResponse, HttpClient
 
 		@Override
 		protected ContextHandler<SocketChannel> doHandler(BiFunction<? super NettyInbound, ? super NettyOutbound, ? extends Publisher<Void>> handler,
-				MonoSink<NettyContext> sink,
+				MonoSink<Connection> sink,
 				boolean secure,
 				SocketAddress providedAddress,
 				ChannelPool pool,

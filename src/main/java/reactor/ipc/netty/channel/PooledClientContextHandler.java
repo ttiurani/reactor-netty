@@ -16,26 +16,20 @@
 
 package reactor.ipc.netty.channel;
 
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 import io.netty.channel.Channel;
 import io.netty.channel.pool.ChannelPool;
-import io.netty.handler.logging.LoggingHandler;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 import io.netty.util.concurrent.SucceededFuture;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.DirectProcessor;
 import reactor.core.publisher.MonoSink;
-import reactor.ipc.netty.NettyContext;
-import reactor.ipc.netty.options.ClientOptions;
+import reactor.ipc.netty.Connection;
 import reactor.util.Logger;
 import reactor.util.Loggers;
-import reactor.util.function.Tuple2;
-import reactor.util.function.Tuples;
 
 /**
  * @param <CHANNEL> the channel type
@@ -48,8 +42,6 @@ final class PooledClientContextHandler<CHANNEL extends Channel>
 
 	static final Logger log = Loggers.getLogger(PooledClientContextHandler.class);
 
-	final ClientOptions         clientOptions;
-	final boolean               secure;
 	final ChannelPool           pool;
 	final DirectProcessor<Void> onReleaseEmitter;
 
@@ -63,21 +55,15 @@ final class PooledClientContextHandler<CHANNEL extends Channel>
 	static final Future DISPOSED = new SucceededFuture<>(null, null);
 
 	PooledClientContextHandler(ChannelOperations.OnNew<CHANNEL> channelOpFactory,
-			ClientOptions options,
-			MonoSink<NettyContext> sink,
-			LoggingHandler loggingHandler,
-			boolean secure,
-			SocketAddress providedAddress,
+			MonoSink<Connection> sink,
 			ChannelPool pool) {
-		super(channelOpFactory, options, sink, loggingHandler, providedAddress);
-		this.clientOptions = options;
-		this.secure = secure;
+		super(channelOpFactory, sink);
 		this.pool = pool;
 		this.onReleaseEmitter = DirectProcessor.create();
 	}
 
 	@Override
-	public void fireContextActive(NettyContext context) {
+	public void fireContextActive(Connection context) {
 		if (!fired) {
 			fired = true;
 			if(context != null) {
@@ -260,7 +246,7 @@ final class PooledClientContextHandler<CHANNEL extends Channel>
 			    if (!c.isActive()) {
 				    return;
 			    }
-			    if (!NettyContext.isPersistent(c) && c.isActive()) {
+			    if (!Connection.isPersistent(c) && c.isActive()) {
 				    c.close();
 			    }
 			    else if (f.isSuccess()) {
@@ -271,25 +257,5 @@ final class PooledClientContextHandler<CHANNEL extends Channel>
 			    }
 		    });
 
-	}
-
-	@Override
-	protected void doDropped(Channel channel) {
-		dispose();
-		fireContextError(new AbortedException("Channel has been dropped"));
-	}
-
-	@Override
-	protected void doPipeline(Channel ch) {
-		//do not add in channelCreated pool
-	}
-
-	@Override
-	protected Tuple2<String, Integer> getSNI() {
-		if (providedAddress instanceof InetSocketAddress) {
-			InetSocketAddress ipa = (InetSocketAddress) providedAddress;
-			return Tuples.of(ipa.getHostName(), ipa.getPort());
-		}
-		return null;
 	}
 }

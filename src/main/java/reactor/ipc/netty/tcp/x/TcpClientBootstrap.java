@@ -13,38 +13,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package reactor.ipc.netty.tcp.x;
 
-package reactor.ipc.netty.channel;
+import java.util.Objects;
+import java.util.function.Function;
 
-import io.netty.channel.Channel;
-import reactor.core.publisher.MonoSink;
-import reactor.ipc.netty.Connection;
+import io.netty.bootstrap.Bootstrap;
 
 /**
- * @param <CHANNEL> the channel type
- *
  * @author Stephane Maldini
  */
-final class ClientContextHandler<CHANNEL extends Channel>
-		extends CloseableContextHandler<CHANNEL> {
+final class TcpClientBootstrap extends TcpClientOperator {
 
 
-	ClientContextHandler(ChannelOperations.OnNew<CHANNEL> channelOpFactory,
-			MonoSink<Connection> sink) {
-		super(channelOpFactory, sink);
+	final Function<? super Bootstrap, ? extends Bootstrap> bootstrapMapper;
+
+	TcpClientBootstrap(TcpClient client,
+			Function<? super Bootstrap, ? extends Bootstrap> bootstrapMapper) {
+		super(client);
+		this.bootstrapMapper = Objects.requireNonNull(bootstrapMapper, "bootstrapMapper");
 	}
 
 	@Override
-	public final void fireContextActive(Connection context) {
-		if(!fired) {
-			fired = true;
-			if(context != null) {
-				sink.success(context);
-			}
-			else {
-				sink.success();
-			}
-		}
+	protected Bootstrap configure() {
+		return Objects.requireNonNull(bootstrapMapper.apply(source.configure()), "bootstrapMapper");
 	}
-
 }

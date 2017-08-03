@@ -18,20 +18,20 @@ package reactor.ipc.netty.http.client;
 
 import org.junit.Before;
 import org.junit.Test;
-import reactor.ipc.netty.options.ClientProxyOptions;
+import reactor.ipc.netty.tcp.x.ProxyProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.function.Function;
 
 public class HttpClientOptionsTest {
-	private HttpClientOptions.Builder builder;
-	private Function<ClientProxyOptions.TypeSpec, ClientProxyOptions.Builder> proxyOptions;
+	private HttpClientOptions.Builder                               builder;
+	private Function<ProxyProvider.TypeSpec, ProxyProvider.Builder> proxyOptions;
 
 	@Before
 	public void setUp() {
 		this.builder = HttpClientOptions.builder();
-		this.proxyOptions = ops -> ops.type(ClientProxyOptions.Proxy.SOCKS4)
+		this.proxyOptions = ops -> ops.type(ProxyProvider.Proxy.SOCKS4)
 		                              .host("http://proxy")
 		                              .port(456);
 	}

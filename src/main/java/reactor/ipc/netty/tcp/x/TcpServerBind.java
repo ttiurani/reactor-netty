@@ -14,37 +14,29 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.channel;
+package reactor.ipc.netty.tcp.x;
 
-import io.netty.channel.Channel;
-import reactor.core.publisher.MonoSink;
+import io.netty.bootstrap.ServerBootstrap;
+import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.channel.ChannelOperations;
+import reactor.ipc.netty.channel.ContextHandler;
 
 /**
- * @param <CHANNEL> the channel type
- *
  * @author Stephane Maldini
  */
-final class ClientContextHandler<CHANNEL extends Channel>
-		extends CloseableContextHandler<CHANNEL> {
+final class TcpServerBind extends TcpServer {
 
-
-	ClientContextHandler(ChannelOperations.OnNew<CHANNEL> channelOpFactory,
-			MonoSink<Connection> sink) {
-		super(channelOpFactory, sink);
-	}
+	static final TcpServerBind INSTANCE = new TcpServerBind();
 
 	@Override
-	public final void fireContextActive(Connection context) {
-		if(!fired) {
-			fired = true;
-			if(context != null) {
-				sink.success(context);
-			}
-			else {
-				sink.success();
-			}
-		}
-	}
+	protected Mono<? extends Connection> bind(ServerBootstrap b) {
+		return Mono.create(sink -> {
+			ContextHandler<?> contextHandler = ContextHandler.newServerContext(sink,
+					(ch, c, msg) -> ChannelOperations.bind(ch, handler, c));
 
+			Handlers.addPipelineConsumer(b, "init", contextHandler);
+			contextHandler.setFuture(b.bind());
+		});
+	}
 }

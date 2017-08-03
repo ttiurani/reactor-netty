@@ -24,7 +24,7 @@ import io.netty.buffer.ByteBuf;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Mono;
 import reactor.ipc.connector.Connector;
-import reactor.ipc.netty.tcp.BlockingNettyContext;
+import reactor.ipc.netty.tcp.BlockingConnection;
 
 /**
  * A Netty {@link Connector}
@@ -37,20 +37,19 @@ public interface NettyConnector<INBOUND extends NettyInbound, OUTBOUND extends N
 		extends Connector<ByteBuf, ByteBuf, INBOUND, OUTBOUND> {
 
 	@Override
-	Mono<? extends NettyContext> newHandler(BiFunction<? super INBOUND, ? super OUTBOUND, ? extends Publisher<Void>> ioHandler);
+	Mono<? extends Connection> newHandler(BiFunction<? super INBOUND, ? super OUTBOUND, ? extends Publisher<Void>> ioHandler);
 
 	/**
 	 * Start a Client or Server in a blocking fashion, and wait for it to finish initializing.
-	 * The returned {@link BlockingNettyContext} class offers a simplified API around operating
-	 * the client/server in a blocking fashion, including to {@link BlockingNettyContext#shutdown() shut it down}.
+	 * The returned {@link BlockingConnection} class offers a simplified API around operating
+	 * the client/server in a blocking fashion, including to {@link BlockingConnection#shutdown() shut it down}.
 	 *
 	 * @param handler the handler to start the client or server with.
 	 * @param <T>
-	 * @return a {@link BlockingNettyContext}
+	 * @return a {@link BlockingConnection}
 	 */
-	default <T extends BiFunction<INBOUND, OUTBOUND, ? extends Publisher<Void>>>
-	BlockingNettyContext start(T handler) {
-		return new BlockingNettyContext(newHandler(handler), getClass().getSimpleName());
+	default <T extends BiFunction<INBOUND, OUTBOUND, ? extends Publisher<Void>>> BlockingConnection start(T handler) {
+		return new BlockingConnection(newHandler(handler), getClass().getSimpleName());
 	}
 
 	/**
@@ -68,8 +67,9 @@ public interface NettyConnector<INBOUND extends NettyInbound, OUTBOUND extends N
 	 * initializing (see {@link #startAndAwait(BiFunction, Consumer)}).
 	 */
 	default <T extends BiFunction<INBOUND, OUTBOUND, ? extends Publisher<Void>>>
-	void startAndAwait(T handler, @Nullable Consumer<BlockingNettyContext> onStart) {
-		BlockingNettyContext facade = new BlockingNettyContext(newHandler(handler), getClass().getSimpleName());
+	void startAndAwait(T handler, @Nullable Consumer<BlockingConnection> onStart) {
+		BlockingConnection
+				facade = new BlockingConnection(newHandler(handler), getClass().getSimpleName());
 
 		if (onStart != null) {
 			onStart.accept(facade);

@@ -35,8 +35,8 @@ import reactor.core.publisher.DirectProcessor;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Operators;
+import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyConnector;
-import reactor.ipc.netty.NettyContext;
 import reactor.ipc.netty.NettyInbound;
 import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.NettyPipeline;
@@ -53,7 +53,7 @@ import reactor.util.context.Context;
  * @since 0.6
  */
 public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends NettyOutbound>
-		implements NettyInbound, NettyOutbound, NettyContext, CoreSubscriber<Void> {
+		implements NettyInbound, NettyOutbound, Connection, CoreSubscriber<Void> {
 
 	/**
 	 * Create a new {@link ChannelOperations} attached to the {@link Channel} attribute
@@ -61,7 +61,6 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	 * Attach the {@link NettyPipeline#ReactiveBridge} handle.
 	 *
 	 * @param channel the new {@link Channel} connection
-	 * @param handler the user-provided {@link BiFunction} i/o handler
 	 * @param context the dispose callback
 	 * @param <INBOUND> the {@link NettyInbound} type
 	 * @param <OUTBOUND> the {@link NettyOutbound} type
@@ -70,25 +69,11 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	 */
 	public static <INBOUND extends NettyInbound, OUTBOUND extends NettyOutbound> ChannelOperations<INBOUND, OUTBOUND> bind(
 			Channel channel,
-			BiFunction<? super INBOUND, ? super OUTBOUND, ? extends Publisher<Void>> handler,
 			ContextHandler<?> context) {
 		@SuppressWarnings("unchecked") ChannelOperations<INBOUND, OUTBOUND> ops =
-				new ChannelOperations<>(channel, handler, context);
+				new ChannelOperations<>(channel, context);
 
 		return ops;
-	}
-
-	/**
-	 * Return a Noop {@link BiFunction} handler
-	 *
-	 * @param <INBOUND> reified inbound type
-	 * @param <OUTBOUND> reified outbound type
-	 *
-	 * @return a Noop {@link BiFunction} handler
-	 */
-	@SuppressWarnings("unchecked")
-	public static <INBOUND extends NettyInbound, OUTBOUND extends NettyOutbound> BiFunction<? super INBOUND, ? super OUTBOUND, ? extends Publisher<Void>> noopHandler() {
-		return PING;
 	}
 
 	/**
@@ -118,9 +103,6 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 			}
 		}
 	}
-
-	final BiFunction<? super INBOUND, ? super OUTBOUND, ? extends Publisher<Void>>
-			                    handler;
 	final Channel               channel;
 	final FluxReceive           inbound;
 	final DirectProcessor<Void> onInactive;
@@ -129,19 +111,16 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	volatile Subscription outboundSubscription;
 	protected ChannelOperations(Channel channel,
 			ChannelOperations<INBOUND, OUTBOUND> replaced) {
-		this(channel, replaced.handler, replaced.context, replaced.onInactive);
+		this(channel, replaced.context, replaced.onInactive);
 	}
 
 	protected ChannelOperations(Channel channel,
-			BiFunction<? super INBOUND, ? super OUTBOUND, ? extends Publisher<Void>> handler,
 			ContextHandler<?> context) {
-		this(channel, handler, context, DirectProcessor.create());
+		this(channel, context, DirectProcessor.create());
 	}
 
 	protected ChannelOperations(Channel channel,
-			BiFunction<? super INBOUND, ? super OUTBOUND, ? extends Publisher<Void>> handler,
 			ContextHandler<?> context, DirectProcessor<Void> processor) {
-		this.handler = Objects.requireNonNull(handler, "handler");
 		this.channel = Objects.requireNonNull(channel, "channel");
 		this.context = Objects.requireNonNull(context, "context");
 		this.inbound = new FluxReceive(this);
@@ -168,12 +147,12 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	}
 
 	@Override
-	public final NettyContext context() {
+	public final Connection context() {
 		return this;
 	}
 
 	@Override
-	public ChannelOperations<INBOUND, OUTBOUND> context(Consumer<NettyContext> contextCallback) {
+	public ChannelOperations<INBOUND, OUTBOUND> context(Consumer<Connection> contextCallback) {
 		contextCallback.accept(context());
 		return this;
 	}
@@ -195,7 +174,7 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	}
 
 	@Override
-	public NettyContext onClose(final Runnable onClose) {
+	public Connection onClose(final Runnable onClose) {
 		onInactive.subscribe(null, e -> onClose.run(), onClose);
 		return this;
 	}
@@ -282,21 +261,11 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	}
 
 	/**
-	 * Connector handler provided by user
-	 *
-	 * @return Connector handler provided by user
-	 */
-	protected final BiFunction<? super INBOUND, ? super OUTBOUND, ? extends Publisher<Void>> handler() {
-		return handler;
-	}
-
-	/**
 	 * React on input initialization
 	 *
 	 */
 	@SuppressWarnings("unchecked")
 	protected void onHandlerStart() {
-		applyHandler();
 		context.fireContextActive(this);
 	}
 
@@ -485,7 +454,6 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	 */
 	protected static final AttributeKey<ChannelOperations> OPERATIONS_KEY = AttributeKey.newInstance("nettyOperations");
 	static final Logger     log  = Loggers.getLogger(ChannelOperations.class);
-	static final BiFunction PING = (i, o) -> Flux.empty();
 
 	static final AtomicReferenceFieldUpdater<ChannelOperations, Subscription>
 			OUTBOUND_CLOSE = AtomicReferenceFieldUpdater.newUpdater(ChannelOperations.class,

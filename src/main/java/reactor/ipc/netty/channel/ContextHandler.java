@@ -16,35 +16,26 @@
 
 package reactor.ipc.netty.channel;
 
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.pool.ChannelPool;
-import io.netty.handler.logging.LoggingHandler;
-import io.netty.handler.ssl.SslHandler;
 import io.netty.util.concurrent.Future;
 import org.reactivestreams.Publisher;
 import reactor.core.Disposable;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoSink;
-import reactor.ipc.netty.NettyContext;
+import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyPipeline;
-import reactor.ipc.netty.options.ClientOptions;
-import reactor.ipc.netty.options.NettyOptions;
-import reactor.ipc.netty.options.ServerOptions;
 import reactor.util.Logger;
 import reactor.util.Loggers;
-import reactor.util.function.Tuple2;
 
 /**
- * A one time-set channel pipeline callback to emit {@link NettyContext} state for clean
+ * A one time-set channel pipeline callback to emit {@link Connection} state for clean
  * disposing. A {@link ContextHandler} is bound to a user-facing {@link MonoSink}
  *
  * @param <CHANNEL> the channel type
@@ -52,32 +43,21 @@ import reactor.util.function.Tuple2;
  * @author Stephane Maldini
  */
 public abstract class ContextHandler<CHANNEL extends Channel>
-		extends ChannelInitializer<CHANNEL> implements Disposable, Consumer<Channel> {
+		implements Disposable, Consumer<Channel> {
 
 	/**
 	 * Create a new client context
 	 *
 	 * @param sink
-	 * @param options
-	 * @param loggingHandler
-	 * @param secure
 	 * @param channelOpFactory
 	 * @param <CHANNEL>
 	 *
 	 * @return a new {@link ContextHandler} for clients
 	 */
 	public static <CHANNEL extends Channel> ContextHandler<CHANNEL> newClientContext(
-			MonoSink<NettyContext> sink,
-			ClientOptions options,
-			LoggingHandler loggingHandler,
-			boolean secure,
-			SocketAddress providedAddress,
+			MonoSink<Connection> sink,
 			ChannelOperations.OnNew<CHANNEL> channelOpFactory) {
 		return newClientContext(sink,
-				options,
-				loggingHandler,
-				secure,
-				providedAddress,
 				null,
 				channelOpFactory);
 	}
@@ -86,10 +66,6 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	 * Create a new client context with optional pool support
 	 *
 	 * @param sink
-	 * @param options
-	 * @param loggingHandler
-	 * @param secure
-	 * @param providedAddress
 	 * @param channelOpFactory
 	 * @param pool
 	 * @param <CHANNEL>
@@ -97,50 +73,31 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	 * @return a new {@link ContextHandler} for clients
 	 */
 	public static <CHANNEL extends Channel> ContextHandler<CHANNEL> newClientContext(
-			MonoSink<NettyContext> sink,
-			ClientOptions options,
-			LoggingHandler loggingHandler,
-			boolean secure,
-			SocketAddress providedAddress,
+			MonoSink<Connection> sink,
 			ChannelPool pool, ChannelOperations.OnNew<CHANNEL> channelOpFactory) {
 		if (pool != null) {
 			return new PooledClientContextHandler<>(channelOpFactory,
-					options,
 					sink,
-					loggingHandler,
-					secure,
-					providedAddress,
 					pool);
 		}
 		return new ClientContextHandler<>(channelOpFactory,
-				options,
-				sink,
-				loggingHandler,
-				secure,
-				providedAddress);
+				sink);
 	}
 
 	/**
 	 * Create a new server context
 	 *
 	 * @param sink
-	 * @param options
-	 * @param loggingHandler
 	 * @param channelOpFactory
 	 *
 	 * @return a new {@link ContextHandler} for servers
 	 */
-	public static ContextHandler<Channel> newServerContext(MonoSink<NettyContext> sink,
-			ServerOptions options,
-			LoggingHandler loggingHandler,
+	public static ContextHandler<Channel> newServerContext(MonoSink<Connection> sink,
 			ChannelOperations.OnNew<Channel> channelOpFactory) {
-		return new ServerContextHandler(channelOpFactory, options, sink, loggingHandler, options.getAddress());
+		return new ServerContextHandler(channelOpFactory, sink);
 	}
 
-	final MonoSink<NettyContext>           sink;
-	final NettyOptions<?, ?>               options;
-	final LoggingHandler                   loggingHandler;
-	final SocketAddress                    providedAddress;
+	final MonoSink<Connection>             sink;
 	final ChannelOperations.OnNew<CHANNEL> channelOpFactory;
 
 	BiConsumer<ChannelPipeline, ContextHandler<Channel>> pipelineConfigurator;
@@ -149,25 +106,15 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 
 	/**
 	 * @param channelOpFactory
-	 * @param options
 	 * @param sink
-	 * @param loggingHandler
-	 * @param providedAddress the {@link InetSocketAddress} targeted by the operation
-	 * associated with that handler (useable eg. for SNI), or null if unavailable.
 	 */
 	@SuppressWarnings("unchecked")
 	protected ContextHandler(ChannelOperations.OnNew<CHANNEL> channelOpFactory,
-			NettyOptions<?, ?> options,
-			MonoSink<NettyContext> sink,
-			LoggingHandler loggingHandler,
-			SocketAddress providedAddress) {
+			MonoSink<Connection> sink) {
 		this.channelOpFactory =
 				Objects.requireNonNull(channelOpFactory, "channelOpFactory");
-		this.options = options;
 		this.sink = sink;
-		this.loggingHandler = loggingHandler;
 		this.autoCreateOperations = true;
-		this.providedAddress = providedAddress;
 
 	}
 
@@ -230,15 +177,6 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 					return null;
 				}
 
-				if (this.options.afterNettyContextInit() != null) {
-					try {
-						this.options.afterNettyContextInit().accept(op.context());
-					}
-					catch (Throwable t) {
-						log.error("Could not apply afterNettyContextInit callback {}", t.toString());
-					}
-				}
-
 				channel.pipeline()
 				       .get(ChannelOperationsHandler.class).lastContext = this;
 
@@ -257,7 +195,7 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	 *
 	 * @param context optional context to succeed the associated {@link MonoSink}
 	 */
-	public abstract void fireContextActive(NettyContext context);
+	public abstract void fireContextActive(Connection context);
 
 	/**
 	 * Trigger {@link MonoSink#error(Throwable)} that will signal
@@ -296,32 +234,8 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	}
 
 	@Override
-	protected void initChannel(CHANNEL ch) throws Exception {
-		accept(ch);
-	}
-
-	/**
-	 * Initialize pipeline
-	 *
-	 * @param ch channel to initialize
-	 */
-	protected abstract void doPipeline(Channel ch);
-
-	@Override
 	@SuppressWarnings("unchecked")
 	public void accept(Channel channel) {
-		doPipeline(channel);
-		if (options.onChannelInit() != null) {
-			if (options.onChannelInit()
-			           .test(channel)) {
-				if (log.isDebugEnabled()) {
-					log.debug("DROPPED by onChannelInit predicate {}", channel);
-				}
-				doDropped(channel);
-				return;
-			}
-		}
-
 		try {
 			if (pipelineConfigurator != null) {
 				pipelineConfigurator.accept(channel.pipeline(),
@@ -338,24 +252,11 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 						t);
 			}
 		}
-		finally {
-			if (null != options.afterChannelInit()) {
-				options.afterChannelInit()
-				       .accept(channel);
-			}
-		}
 		if (log.isDebugEnabled()) {
 			log.debug("After pipeline {}",
 					channel.pipeline()
 					       .toString());
 		}
-	}
-
-	/**
-	 * @param channel
-	 */
-	protected void doDropped(Channel channel) {
-		//ignore
 	}
 
 	/**
@@ -369,10 +270,6 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 		dispose();
 	}
 
-	protected Tuple2<String, Integer> getSNI() {
-		return null; //will ignore SNI
-	}
-
 	/**
 	 * Return a Publisher to signal onComplete on {@link Channel} close or release.
 	 *
@@ -383,57 +280,4 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	protected abstract Publisher<Void> onCloseOrRelease(Channel channel);
 
 	static final Logger         log      = Loggers.getLogger(ContextHandler.class);
-
-	static void addSslAndLogHandlers(NettyOptions<?, ?> options,
-			ContextHandler<?> sink,
-			LoggingHandler loggingHandler,
-			boolean secure,
-			Tuple2<String, Integer> sniInfo,
-			ChannelPipeline pipeline) {
-		SslHandler sslHandler = secure
-				? options.getSslHandler(pipeline.channel().alloc(), sniInfo)
-				: null;
-
-		if (sslHandler != null) {
-			if (log.isDebugEnabled() && sniInfo != null) {
-				log.debug("SSL enabled using engine {} and SNI {}",
-						sslHandler.engine()
-						          .getClass()
-						          .getSimpleName(),
-						sniInfo);
-			}
-			else if (log.isDebugEnabled()) {
-				log.debug("SSL enabled using engine {}",
-						sslHandler.engine()
-						          .getClass()
-						          .getSimpleName());
-			}
-			if (log.isTraceEnabled()) {
-				pipeline.addFirst(NettyPipeline.SslLoggingHandler, new
-						LoggingHandler(SslReadHandler.class));
-				pipeline.addAfter(NettyPipeline.SslLoggingHandler,
-						NettyPipeline.SslHandler,
-						sslHandler);
-			}
-			else {
-				pipeline.addFirst(NettyPipeline.SslHandler, sslHandler);
-			}
-			if (log.isDebugEnabled()) {
-				pipeline.addAfter(NettyPipeline.SslHandler,
-						NettyPipeline.LoggingHandler,
-						loggingHandler);
-				pipeline.addAfter(NettyPipeline.LoggingHandler,
-						NettyPipeline.SslReader,
-						new SslReadHandler(sink));
-			}
-			else {
-				pipeline.addAfter(NettyPipeline.SslHandler,
-						NettyPipeline.SslReader,
-						new SslReadHandler(sink));
-			}
-		}
-		else if (log.isDebugEnabled()) {
-			pipeline.addFirst(NettyPipeline.LoggingHandler, loggingHandler);
-		}
-	}
 }

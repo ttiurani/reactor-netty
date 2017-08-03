@@ -27,15 +27,15 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import org.junit.Test;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.ipc.netty.NettyContext;
+import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyPipeline;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
-public class BlockingNettyContextTest {
+public class BlockingConnectionTest {
 
-	static final NettyContext NEVER_STOP_CONTEXT = new NettyContext() {
+	static final Connection NEVER_STOP_CONTEXT = new Connection() {
 		@Override
 		public Channel channel() {
 			return new EmbeddedChannel();
@@ -54,7 +54,7 @@ public class BlockingNettyContextTest {
 
 	@Test
 	public void simpleServerFromAsyncServer() throws InterruptedException {
-		BlockingNettyContext simpleServer =
+		BlockingConnection simpleServer =
 				TcpServer.create()
 				         .start((in, out) -> out
 						         .options(NettyPipeline.SendOptions::flushOnEach)
@@ -74,7 +74,7 @@ public class BlockingNettyContextTest {
 		AtomicReference<List<String>> data1 = new AtomicReference<>();
 		AtomicReference<List<String>> data2 = new AtomicReference<>();
 
-		BlockingNettyContext simpleClient1 =
+		BlockingConnection simpleClient1 =
 				TcpClient.create(simpleServer.getPort())
 				         .start((in, out) -> out.options(NettyPipeline.SendOptions::flushOnEach)
 				                                .sendString(Flux.just("Hello", "World", "CONTROL"))
@@ -88,7 +88,7 @@ public class BlockingNettyContextTest {
 				                                        .doOnNext(System.err::println)
 				                                        .then()));
 
-		BlockingNettyContext simpleClient2 =
+		BlockingConnection simpleClient2 =
 				TcpClient.create(simpleServer.getPort())
 				         .start((in, out) -> out.options(NettyPipeline.SendOptions::flushOnEach)
 				                                .sendString(Flux.just("How", "Are", "You?", "CONTROL"))
@@ -132,15 +132,15 @@ public class BlockingNettyContextTest {
 	@Test
 	public void testTimeoutOnStart() {
 		assertThatExceptionOfType(RuntimeException.class)
-				.isThrownBy(() -> new BlockingNettyContext(Mono.never(), "TEST NEVER START", Duration.ofMillis(100)))
+				.isThrownBy(() -> new BlockingConnection(Mono.never(), "TEST NEVER START", Duration.ofMillis(100)))
 				.withCauseExactlyInstanceOf(TimeoutException.class)
 				.withMessage("java.util.concurrent.TimeoutException: TEST NEVER START couldn't be started within 100ms");
 	}
 
 	@Test
 	public void testTimeoutOnStop() {
-		final BlockingNettyContext neverStop =
-				new BlockingNettyContext(Mono.just(NEVER_STOP_CONTEXT), "TEST NEVER STOP", Duration.ofMillis(100));
+		final BlockingConnection neverStop =
+				new BlockingConnection(Mono.just(NEVER_STOP_CONTEXT), "TEST NEVER STOP", Duration.ofMillis(100));
 
 		assertThatExceptionOfType(RuntimeException.class)
 				.isThrownBy(neverStop::shutdown)
@@ -150,8 +150,8 @@ public class BlockingNettyContextTest {
 
 	@Test
 	public void testTimeoutOnStopChangedTimeout() {
-		final BlockingNettyContext neverStop =
-				new BlockingNettyContext(Mono.just(NEVER_STOP_CONTEXT), "TEST NEVER STOP", Duration.ofMillis(500));
+		final BlockingConnection neverStop =
+				new BlockingConnection(Mono.just(NEVER_STOP_CONTEXT), "TEST NEVER STOP", Duration.ofMillis(500));
 
 		neverStop.setLifecycleTimeout(Duration.ofMillis(100));
 
@@ -163,8 +163,8 @@ public class BlockingNettyContextTest {
 
 	@Test
 	public void getContextAddressAndHost() {
-		BlockingNettyContext
-				facade = new BlockingNettyContext(Mono.just(NEVER_STOP_CONTEXT), "foo");
+		BlockingConnection
+				facade = new BlockingConnection(Mono.just(NEVER_STOP_CONTEXT), "foo");
 
 		assertThat(facade.getContext()).isSameAs(NEVER_STOP_CONTEXT);
 		assertThat(facade.getPort()).isEqualTo(NEVER_STOP_CONTEXT.address().getPort());

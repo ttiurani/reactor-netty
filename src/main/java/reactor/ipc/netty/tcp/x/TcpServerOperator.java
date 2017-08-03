@@ -13,13 +13,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package reactor.ipc.netty.tcp.x;
+
+import java.util.Objects;
+
+import io.netty.bootstrap.Bootstrap;
+import io.netty.bootstrap.ServerBootstrap;
+import reactor.core.publisher.Mono;
+import reactor.ipc.netty.Connection;
 
 /**
- * Provider or Netty reusable component given various Reactor Netty parameters, for
- * clients
- * and servers.
- * This will produce {@link io.netty.bootstrap.Bootstrap} and
- * {@link io.netty.bootstrap.ServerBootstrap} along with some specific helper like
- * {@link io.netty.channel.pool.ChannelPool}.
+ * @author Stephane Maldini
  */
-package reactor.ipc.netty.options;
+abstract class TcpServerOperator extends TcpServer {
+
+	final TcpServer source;
+
+	TcpServerOperator(TcpServer source) {
+		this.source = Objects.requireNonNull(source, "source");
+	}
+
+	@Override
+	protected ServerBootstrap configure() {
+		return source.configure();
+	}
+
+	@Override
+	protected Mono<? extends Connection> bind(ServerBootstrap b) {
+		return source.bind(b);
+	}
+}

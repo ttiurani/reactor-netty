@@ -48,7 +48,7 @@ import org.testng.Assert;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.ByteBufFlux;
-import reactor.ipc.netty.NettyContext;
+import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.http.HttpResources;
 import reactor.ipc.netty.http.client.HttpClient;
@@ -72,7 +72,7 @@ public class HttpServerTests {
 		SslContext sslServer = SslContextBuilder.forServer(ssc.certificate(), ssc.privateKey()).build();
 		SslContext sslClient = SslContextBuilder.forClient().trustManager(ssc.cert()).build();
 
-		NettyContext context =
+		Connection context =
 				HttpServer.create(opt -> opt.sslContext(sslServer))
 				          .newHandler((req, resp) -> resp.sendFile(largeFile))
 				          .block();
@@ -130,7 +130,7 @@ public class HttpServerTests {
 	}
 
 	private void assertSendFile(Function<HttpServerResponse, NettyOutbound> fn) throws IOException, URISyntaxException {
-		NettyContext context =
+		Connection context =
 				HttpServer.create(opt -> opt.host("localhost"))
 				          .newHandler((req, resp) -> fn.apply(resp))
 				          .block();
@@ -156,10 +156,10 @@ public class HttpServerTests {
 	@Test
 	public void testRestart() {
 		// start a first server with a handler that answers HTTP 200 OK
-		NettyContext context = HttpServer.create(8080)
-		                                 .newHandler((req, resp) -> resp.status(200)
+		Connection context = HttpServer.create(8080)
+		                               .newHandler((req, resp) -> resp.status(200)
 		                                                                .send().log())
-		                                 .block();
+		                               .block();
 
 		HttpClientResponse response = HttpClient.create(8080).get("/").block();
 
@@ -186,9 +186,9 @@ public class HttpServerTests {
 
 	@Test
 	public void errorResponseAndReturn() throws Exception {
-		NettyContext c = HttpServer.create(0)
-		                           .newHandler((req, resp) -> Mono.error(new Exception("returnError")))
-		                           .block();
+		Connection c = HttpServer.create(0)
+		                         .newHandler((req, resp) -> Mono.error(new Exception("returnError")))
+		                         .block();
 
 		assertThat(HttpClient.create(c.address()
 		                              .getPort())
@@ -206,14 +206,14 @@ public class HttpServerTests {
 
 		AtomicInteger i = new AtomicInteger();
 
-		NettyContext c = HttpServer.create(0)
-		                           .newHandler((req, resp) -> resp.header(HttpHeaderNames.CONTENT_LENGTH, "1")
+		Connection c = HttpServer.create(0)
+		                         .newHandler((req, resp) -> resp.header(HttpHeaderNames.CONTENT_LENGTH, "1")
 		                                                          .sendString(Mono.just(i.incrementAndGet())
 		                                                                          .flatMap(d -> Mono.delay(
 				                                                                          Duration.ofSeconds(
 						                                                                          4 - d))
 		                                                                                         .map(x -> d + "\n"))))
-		                           .block(Duration.ofSeconds(30));
+		                         .block(Duration.ofSeconds(30));
 
 		DefaultFullHttpRequest request = new DefaultFullHttpRequest(HttpVersion.HTTP_1_1,
 				HttpMethod.GET,
@@ -256,9 +256,9 @@ public class HttpServerTests {
 		Flux<String> test = Flux.range(0, 100)
 		                        .map(n -> String.format("%010d", n));
 
-		NettyContext c = HttpServer.create(0)
-		                           .newHandler((req, resp) -> resp.sendString(test.map(s -> s + "\n")))
-		                           .block(Duration.ofSeconds(30));
+		Connection c = HttpServer.create(0)
+		                         .newHandler((req, resp) -> resp.sendString(test.map(s -> s + "\n")))
+		                         .block(Duration.ofSeconds(30));
 
 		Flux<String> client = HttpClient.create(c.address()
 		                                         .getPort())
@@ -277,9 +277,9 @@ public class HttpServerTests {
 	@Test
 	public void keepAlive() throws URISyntaxException {
 		Path resource = Paths.get(getClass().getResource("/public").toURI());
-		NettyContext c = HttpServer.create(0)
-		                           .newRouter(routes -> routes.directory("/test", resource))
-		                           .block(Duration.ofSeconds(30));
+		Connection c = HttpServer.create(0)
+		                         .newRouter(routes -> routes.directory("/test", resource))
+		                         .block(Duration.ofSeconds(30));
 
 		HttpResources.set(PoolResources.fixed("http", 1));
 

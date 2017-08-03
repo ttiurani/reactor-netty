@@ -26,7 +26,7 @@ import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.ByteBufFlux;
-import reactor.ipc.netty.NettyContext;
+import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyInbound;
 import reactor.ipc.netty.http.HttpInfos;
 import reactor.ipc.netty.http.multipart.MultipartInbound;
@@ -43,11 +43,11 @@ import reactor.ipc.netty.http.websocket.WebsocketOutbound;
  * @author Stephane Maldini
  * @since 0.5
  */
-public interface HttpClientResponse extends NettyInbound, HttpInfos, NettyContext {
+public interface HttpClientResponse extends NettyInbound, HttpInfos, Connection {
 
 	@Override
 	default HttpClientResponse addHandlerFirst(ChannelHandler handler) {
-		NettyContext.super.addHandlerFirst(handler);
+		Connection.super.addHandlerFirst(handler);
 		return this;
 	}
 
@@ -104,7 +104,7 @@ public interface HttpClientResponse extends NettyInbound, HttpInfos, NettyContex
 		return new MultipartInbound() {
 
 			@Override
-			public NettyContext context() {
+			public Connection context() {
 				return thiz.context();
 			}
 
