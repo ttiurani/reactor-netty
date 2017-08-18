@@ -22,6 +22,7 @@ import io.netty.channel.Channel;
 import io.netty.channel.socket.DatagramChannel;
 import io.netty.channel.socket.ServerSocketChannel;
 import io.netty.channel.socket.SocketChannel;
+import reactor.core.Disposable;
 import reactor.core.publisher.MonoSink;
 import reactor.ipc.netty.Connection;
 
@@ -75,8 +76,8 @@ final class ServerContextHandler extends CloseableContextHandler<Channel>
 	}
 
 	@Override
-	public Connection onClose(Runnable onClose) {
-		onClose().subscribe(null, e -> onClose.run(), onClose);
+	public Connection onDispose(Disposable onDispose) {
+		onDispose().subscribe(null, e -> onDispose.dispose(), onDispose::dispose);
 		return this;
 	}
 

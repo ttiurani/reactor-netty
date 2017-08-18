@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp.x;
+package reactor.ipc.netty.tcp;
 
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -122,6 +123,30 @@ public final class ProxyProvider {
 						new Socks5ProxyHandler(proxyAddr);
 		}
 		throw new IllegalArgumentException("Proxy type unsupported : " + this.type);
+	}
+
+	/**
+	 * Should proxy the given address
+	 *
+	 * @param address the address to test
+	 *
+	 * @return true if of type {@link InetSocketAddress} and hostname candidate to proxy
+	 */
+	public boolean shouldProxy(SocketAddress address) {
+		return address instanceof InetSocketAddress && shouldProxy(((InetSocketAddress) address).getHostName());
+	}
+
+	/**
+	 * Should proxy the given hostname
+	 *
+	 * @param hostName the hostname to test
+	 *
+	 * @return true if candidate to proxy
+	 */
+	public boolean shouldProxy(String hostName) {
+		return nonProxyHosts == null || hostName == null || !nonProxyHosts.matcher(
+				hostName)
+		                                                                  .matches();
 	}
 
 	/**

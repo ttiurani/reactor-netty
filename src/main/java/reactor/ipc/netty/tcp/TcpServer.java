@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp.x;
+package reactor.ipc.netty.tcp;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -36,13 +37,17 @@ import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.util.AttributeKey;
 import io.netty.util.NetUtil;
+import org.reactivestreams.Publisher;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.NettyInbound;
+import reactor.ipc.netty.NettyOutbound;
+import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.resources.LoopResources;
 
 /**
- * A TcpServer allows to build in a safe immutable way a tcp server that is materialized
+ * A UdpClient allows to build in a safe immutable way a tcp server that is materialized
  * and connecting when {@link #bind(ServerBootstrap)} is ultimately called.
  * <p>
  * <p> Internally, materialization happens in two phases, first {@link #configure()} is
@@ -51,7 +56,7 @@ import reactor.ipc.netty.resources.LoopResources;
  * <p>
  * <p> Example:
  * <p>
- * {@code TcpServer.create()
+ * {@code UdpClient.create()
  * .doOnBind(startMetrics)
  * .doOnBound(startedMetrics)
  * .doOnUnbind(stopMetrics)
@@ -64,14 +69,6 @@ import reactor.ipc.netty.resources.LoopResources;
  * @author Stephane Maldini
  */
 public abstract class TcpServer {
-
-	/**
-	 * The default port for reactor-netty servers. Defaults to 12012 but can be tuned via
-	 * the {@code PORT} <b>environment variable</b>.
-	 */
-	public static final int DEFAULT_PORT =
-			System.getenv("PORT") != null ? Integer.parseInt(System.getenv("PORT")) :
-					12012;
 
 	/**
 	 * Prepare a {@link TcpServer}
@@ -111,24 +108,6 @@ public abstract class TcpServer {
 		Objects.requireNonNull(key, "key");
 		Objects.requireNonNull(value, "value");
 		return bootstrap(b -> b.childAttr(key, value));
-	}
-
-	/**
-	 * Inject default attribute to the future {@link io.netty.channel.ServerChannel}
-	 * selector connection.
-	 *
-	 * @param key the attribute key
-	 * @param value the attribute value
-	 * @param <T> the attribute type
-	 *
-	 * @return a new {@link TcpServer}
-	 *
-	 * @see Bootstrap#attr(AttributeKey, Object)
-	 */
-	public final <T> TcpServer attrParent(AttributeKey<T> key, T value) {
-		Objects.requireNonNull(key, "key");
-		Objects.requireNonNull(value, "value");
-		return bootstrap(b -> b.attr(key, value));
 	}
 
 	/**
@@ -257,24 +236,6 @@ public abstract class TcpServer {
 	}
 
 	/**
-	 * Set a {@link ChannelOption} value for low level connection settings like SO_TIMEOUT
-	 * or SO_KEEPALIVE. This will apply to parent selector channel.
-	 *
-	 * @param key the option key
-	 * @param value the option value
-	 * @param <T> the option type
-	 *
-	 * @return new {@link TcpServer}
-	 *
-	 * @see Bootstrap#option(ChannelOption, Object)
-	 */
-	public final <T> TcpServer optionParent(ChannelOption<T> key, T value) {
-		Objects.requireNonNull(key, "key");
-		Objects.requireNonNull(value, "value");
-		return bootstrap(b -> b.option(key, value));
-	}
-
-	/**
 	 * The port to which this client should connect.
 	 *
 	 * @param port The port to connect to.
@@ -282,7 +243,7 @@ public abstract class TcpServer {
 	 * @return a new {@link TcpServer}
 	 */
 	public final TcpServer port(int port) {
-		return bootstrap(b -> b.localAddress(getHost(b), port));
+		return bootstrap(b -> b.localAddress(TcpUtils.getHost(b), port));
 	}
 
 	/**
@@ -309,7 +270,7 @@ public abstract class TcpServer {
 	 * @return a new {@link TcpServer}
 	 */
 	public final TcpServer runOn(LoopResources channelResources) {
-		return runOn(channelResources, DEFAULT_NATIVE);
+		return runOn(channelResources, LoopResources.DEFAULT_NATIVE);
 	}
 
 	/**
@@ -334,7 +295,7 @@ public abstract class TcpServer {
 	 * @return a new {@link TcpServer}
 	 */
 	public final TcpServer secure() {
-		return secure(TcpServerSecure.DEFAULT_SSL_CONTEXT, DEFAULT_SSL_HANDSHAKE_TIMEOUT);
+		return secure(TcpServerSecure.DEFAULT_SSL_CONTEXT, TcpUtils.DEFAULT_SSL_HANDSHAKE_TIMEOUT);
 	}
 
 	/**
@@ -348,7 +309,7 @@ public abstract class TcpServer {
 	 * @return a new {@link TcpServer}
 	 */
 	public final TcpServer secure(Consumer<? super SslContextBuilder> configurator) {
-		return secure(configurator, DEFAULT_SSL_HANDSHAKE_TIMEOUT);
+		return secure(configurator, TcpUtils.DEFAULT_SSL_HANDSHAKE_TIMEOUT);
 	}
 
 	/**
@@ -378,9 +339,45 @@ public abstract class TcpServer {
 	public final TcpServer secure(SslContext sslContext, Duration handshakeTimeout) {
 		Objects.requireNonNull(sslContext, "sslContext");
 		Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
-		return bootstrap(b -> Handlers.addOrUpdateSslSupport(b,
+		return bootstrap(b -> TcpUtils.addOrUpdateSslSupport(b,
 				sslContext,
 				handshakeTimeout));
+	}
+
+	/**
+	 * Inject default attribute to the future {@link io.netty.channel.ServerChannel}
+	 * selector connection.
+	 *
+	 * @param key the attribute key
+	 * @param value the attribute value
+	 * @param <T> the attribute type
+	 *
+	 * @return a new {@link TcpServer}
+	 *
+	 * @see Bootstrap#attr(AttributeKey, Object)
+	 */
+	public final <T> TcpServer selectorAttr(AttributeKey<T> key, T value) {
+		Objects.requireNonNull(key, "key");
+		Objects.requireNonNull(value, "value");
+		return bootstrap(b -> b.attr(key, value));
+	}
+
+	/**
+	 * Set a {@link ChannelOption} value for low level connection settings like SO_TIMEOUT
+	 * or SO_KEEPALIVE. This will apply to parent selector channel.
+	 *
+	 * @param key the option key
+	 * @param value the option value
+	 * @param <T> the option type
+	 *
+	 * @return new {@link TcpServer}
+	 *
+	 * @see Bootstrap#option(ChannelOption, Object)
+	 */
+	public final <T> TcpServer selectorOption(ChannelOption<T> key, T value) {
+		Objects.requireNonNull(key, "key");
+		Objects.requireNonNull(value, "value");
+		return bootstrap(b -> b.option(key, value));
 	}
 
 	/**
@@ -389,7 +386,7 @@ public abstract class TcpServer {
 	 * @return a new {@link TcpServer}
 	 */
 	public final TcpServer unsecure() {
-		return bootstrap(Handlers.removeSslSupport());
+		return bootstrap(TcpUtils::removeSslSupport);
 	}
 
 	/**
@@ -398,7 +395,7 @@ public abstract class TcpServer {
 	 * @return a new {@link TcpServer}
 	 */
 	public final TcpServer wiretap() {
-		return bootstrap(b -> Handlers.addOrUpdateLogSupport(b, LOGGING_HANDLER));
+		return bootstrap(b -> BootstrapHandlers.addOrUpdateLogSupport(b, LOGGING_HANDLER));
 	}
 
 	/**
@@ -423,7 +420,7 @@ public abstract class TcpServer {
 	public final TcpServer wiretap(String category, LogLevel level) {
 		Objects.requireNonNull(category, "category");
 		Objects.requireNonNull(level, "level");
-		return bootstrap(b -> Handlers.addOrUpdateLogSupport(b,
+		return bootstrap(b -> BootstrapHandlers.addOrUpdateLogSupport(b,
 				new LoggingHandler(category, level)));
 	}
 
@@ -449,37 +446,17 @@ public abstract class TcpServer {
 	static final ServerBootstrap DEFAULT_BOOTSTRAP =
 			new ServerBootstrap().option(ChannelOption.SO_REUSEADDR, true)
 			                     .option(ChannelOption.SO_BACKLOG, 1000)
-			                     .childOption(ChannelOption.ALLOCATOR,
-					                     PooledByteBufAllocator.DEFAULT)
+			                     .childOption(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
 			                     .childOption(ChannelOption.SO_RCVBUF, 1024 * 1024)
 			                     .childOption(ChannelOption.SO_SNDBUF, 1024 * 1024)
 			                     .childOption(ChannelOption.AUTO_READ, false)
 			                     .childOption(ChannelOption.SO_KEEPALIVE, true)
 			                     .childOption(ChannelOption.SO_LINGER, 0)
 			                     .childOption(ChannelOption.TCP_NODELAY, true)
-			                     .childOption(ChannelOption.CONNECT_TIMEOUT_MILLIS,
-					                     30000);
-
-	static final boolean DEFAULT_NATIVE =
-			Boolean.parseBoolean(System.getProperty("reactor.ipc.netty.epoll", "true"));
-
-	static final Duration DEFAULT_SSL_HANDSHAKE_TIMEOUT =
-			Duration.ofMillis(Integer.parseInt(System.getProperty(
-					"reactor.ipc.netty.sslHandshakeTimeout",
-					"10000")));
-
+			                     .childOption(ChannelOption.CONNECT_TIMEOUT_MILLIS, 30000)
+			                     .localAddress(NetUtil.LOCALHOST.getHostName(), TcpUtils.DEFAULT_PORT);
 
 	static final LoggingHandler LOGGING_HANDLER = new LoggingHandler(TcpServer.class);
-
-	@SuppressWarnings("unchecked")
-	static String getHost(ServerBootstrap b) {
-		if (b.config()
-		     .localAddress() instanceof InetSocketAddress) {
-			return ((InetSocketAddress) b.config()
-			                             .localAddress()).getHostName();
-		}
-		return NetUtil.LOCALHOST.getHostName();
-	}
 
 	@SuppressWarnings("unchecked")
 	static int getPort(ServerBootstrap b) {
@@ -488,6 +465,6 @@ public abstract class TcpServer {
 			return ((InetSocketAddress) b.config()
 			                             .localAddress()).getPort();
 		}
-		return DEFAULT_PORT;
+		return TcpUtils.DEFAULT_PORT;
 	}
 }

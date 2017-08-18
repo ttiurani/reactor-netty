@@ -26,8 +26,8 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import reactor.ipc.netty.options.ClientOptions;
-import reactor.ipc.netty.tcp.x.ProxyProvider;
-import reactor.ipc.netty.tcp.x.ProxyProvider.Proxy;
+import reactor.ipc.netty.tcp.ProxyProvider;
+import reactor.ipc.netty.tcp.ProxyProvider.Proxy;
 
 /**
  * An http client connector builder with low-level connection options including

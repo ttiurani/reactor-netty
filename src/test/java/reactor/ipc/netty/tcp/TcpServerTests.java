@@ -60,6 +60,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.WorkQueueProcessor;
 import reactor.core.scheduler.Schedulers;
+import reactor.ipc.netty.BlockingConnection;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyInbound;
 import reactor.ipc.netty.NettyOutbound;
@@ -343,7 +344,7 @@ public class TcpServerTests {
 						                       "search"))
 				                       .flatMapMany(repliesOut -> out.send(repliesOut.receive()))))
 		      .block(Duration.ofSeconds(30))
-		      .onClose()
+		      .onDispose()
 		      .block(Duration.ofSeconds(30));
 	}
 
@@ -359,7 +360,7 @@ public class TcpServerTests {
 				                       .flatMapMany(repliesOut -> out.sendGroups(repliesOut.receive()
 				                                                                       .window(100)))))
 		      .block(Duration.ofSeconds(30))
-		      .onClose()
+		      .onDispose()
 		      .block(Duration.ofSeconds(30));
 	}
 
@@ -414,7 +415,7 @@ public class TcpServerTests {
 					           .subscribe(v -> clientLatch.countDown());
 
 					         return out.sendString(Mono.just("gogogo"))
-					                   //TODO cannot nevercomplete here (the client onClose hangs), cannot use `then()` either :(
+					                   //TODO cannot nevercomplete here (the client onDispose hangs), cannot use `then()` either :(
 					                   .then(Mono.delay(Duration.ofMillis(500)).then());
 				         })
 				         .block(Duration.ofMillis(500));
@@ -430,7 +431,7 @@ public class TcpServerTests {
 					           .subscribe(v -> clientLatch.countDown());
 
 					         return out.sendString(Mono.just("GOGOGO"))
-					                   //TODO cannot nevercomplete here (the client onClose hangs), cannot use `then()` either :(
+					                   //TODO cannot nevercomplete here (the client onDispose hangs), cannot use `then()` either :(
 					                   .then(Mono.delay(Duration.ofMillis(500)).then());
 				         })
 				         .block(Duration.ofMillis(500));
@@ -438,13 +439,13 @@ public class TcpServerTests {
 		clientLatch.await(1, TimeUnit.SECONDS);
 
 		client1.dispose();
-		client1.onClose().block();
+		client1.onDispose().block();
 
 		client2.dispose();
-		client2.onClose().block();
+		client2.onDispose().block();
 
 		context.dispose();
-		context.onClose().block();
+		context.onDispose().block();
 
 		Assertions.assertThat(client1Response).containsExactly("NOPE");
 
@@ -519,7 +520,7 @@ public class TcpServerTests {
 					           .subscribe(v -> clientLatch.countDown());
 
 					         return out.sendString(Mono.just("gogogo"))
-					                   //TODO cannot nevercomplete here (the client onClose hangs), cannot use `then()` either :(
+					                   //TODO cannot nevercomplete here (the client onDispose hangs), cannot use `then()` either :(
 					                   .then(Mono.delay(Duration.ofMillis(500)).then());
 				         })
 				         .block(Duration.ofMillis(500));
@@ -533,7 +534,7 @@ public class TcpServerTests {
 					           .subscribe(v -> clientLatch.countDown());
 
 					         return out.sendString(Mono.just("GOGOGO"))
-					                   //TODO cannot nevercomplete here (the client onClose hangs), cannot use `then()` either :(
+					                   //TODO cannot nevercomplete here (the client onDispose hangs), cannot use `then()` either :(
 					                   .then(Mono.delay(Duration.ofMillis(500)).then());
 				         })
 				         .block(Duration.ofMillis(500));
@@ -541,13 +542,13 @@ public class TcpServerTests {
 		clientLatch.await(1, TimeUnit.SECONDS);
 
 		client1.dispose();
-		client1.onClose().block();
+		client1.onDispose().block();
 
 		client2.dispose();
-		client2.onClose().block();
+		client2.onDispose().block();
 
 		context.dispose();
-		context.onClose().block();
+		context.onDispose().block();
 
 		Assertions.assertThat(client1Response).containsExactly("NOPE");
 

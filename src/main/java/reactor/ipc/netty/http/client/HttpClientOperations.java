@@ -58,12 +58,14 @@ import io.netty.util.AttributeKey;
 import io.netty.util.ReferenceCountUtil;
 import org.reactivestreams.Publisher;
 import reactor.core.CoreSubscriber;
+import reactor.core.Disposable;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Operators;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.FutureMono;
+import reactor.ipc.netty.NettyInbound;
 import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.NettyPipeline;
 import reactor.ipc.netty.channel.ContextHandler;
@@ -81,10 +83,8 @@ import reactor.util.Loggers;
 class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClientRequest>
 		implements HttpClientResponse, HttpClientRequest {
 
-	static HttpOperations bindHttp(Channel channel,
-			BiFunction<? super HttpClientResponse, ? super HttpClientRequest, ? extends Publisher<Void>> handler,
-			ContextHandler<?> context) {
-		return new HttpClientOperations(channel, handler, context);
+	static HttpOperations bindHttp(Channel channel, ContextHandler<?> context) {
+		return new HttpClientOperations(channel, context);
 	}
 
 	final String[]    redirectedFrom;
@@ -115,10 +115,8 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 		this.serverError = replaced.serverError;
 	}
 
-	HttpClientOperations(Channel channel,
-			BiFunction<? super HttpClientResponse, ? super HttpClientRequest, ? extends Publisher<Void>> handler,
-			ContextHandler<?> context) {
-		super(channel, handler, context);
+	HttpClientOperations(Channel channel, ContextHandler<?> context) {
+		super(channel, context);
 		this.isSecure = channel.pipeline()
 		                       .get(NettyPipeline.SslHandler) != null;
 		String[] redirects = channel.attr(REDIRECT_ATTR_KEY)
@@ -312,8 +310,8 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 	}
 
 	@Override
-	public final HttpClientOperations onClose(Runnable onClose) {
-		super.onClose(onClose);
+	public final HttpClientOperations onDispose(Disposable onDispose) {
+		super.onDispose(onDispose);
 		return this;
 	}
 
@@ -820,4 +818,19 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 			Loggers.getLogger(HttpClientOperations.class);
 	static final AttributeKey<String[]> REDIRECT_ATTR_KEY  =
 			AttributeKey.newInstance("httpRedirects");
+
+	/**
+	 * Return a Noop {@link BiFunction} handler
+	 *
+	 * @param <INBOUND> reified inbound type
+	 * @param <OUTBOUND> reified outbound type
+	 *
+	 * @return a Noop {@link BiFunction} handler
+	 */
+	@SuppressWarnings("unchecked")
+	static <INBOUND extends NettyInbound, OUTBOUND extends NettyOutbound> BiFunction<? super INBOUND, ? super OUTBOUND, ? extends Publisher<Void>> noopHandler() {
+		return PING;
+	}
+
+	static final BiFunction PING = (i, o) -> Flux.empty();
 }

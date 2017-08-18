@@ -262,7 +262,7 @@ public class TcpClientTests {
 
 			handler.log()
 			       .block(Duration.ofSeconds(30))
-			       .onClose()
+			       .onDispose()
 			       .then(handler.doOnSuccess(s -> reconnectionLatch.countDown()))
 			       .block(Duration.ofSeconds(30));
 

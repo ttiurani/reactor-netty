@@ -13,47 +13,49 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package reactor.ipc.netty.tcp.x;
+
+package reactor.ipc.netty.udp;
 
 import java.util.function.Consumer;
 
 import io.netty.bootstrap.Bootstrap;
+import io.netty.bootstrap.ServerBootstrap;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
 
 /**
  * @author Stephane Maldini
  */
-final class TcpClientLifecycle extends TcpClientOperator implements Consumer<Connection> {
+final class UdpClientLifecycle extends UdpClientOperator implements Consumer<Connection> {
 
-	final Consumer<? super Bootstrap>  onConnect;
-	final Consumer<? super Connection> onConnected;
-	final Consumer<? super Connection> onDisconnect;
+	final Consumer<? super Bootstrap> onBind;
+	final Consumer<? super Connection>      onBound;
+	final Consumer<? super Connection>      onUnbound;
 
-	TcpClientLifecycle(TcpClient client,
-			Consumer<? super Bootstrap> onConnect,
-			Consumer<? super Connection> onConnected,
-			Consumer<? super Connection> onDisconnect) {
-		super(client);
-		this.onConnect = onConnect;
-		this.onConnected = onConnected;
-		this.onDisconnect = onDisconnect;
+	UdpClientLifecycle(UdpClient server,
+			Consumer<? super Bootstrap> onBind,
+			Consumer<? super Connection> onBound,
+			Consumer<? super Connection> onUnbound) {
+		super(server);
+		this.onBind = onBind;
+		this.onBound = onBound;
+		this.onUnbound = onUnbound;
 	}
 
 	@Override
-	protected Mono<? extends Connection> connect(Bootstrap b) {
-		Mono<? extends Connection> m = source.connect(b);
+	protected Mono<? extends Connection> bind(Bootstrap b) {
+		Mono<? extends Connection> m = source.bind(b);
 
-		if (onConnect != null) {
-			m = m.doOnSubscribe(s -> onConnect.accept(b));
+		if (onBind != null) {
+			m = m.doOnSubscribe(s -> onBind.accept(b));
 		}
 
-		if (onConnected != null) {
+		if (onBound != null) {
 			m = m.doOnNext(this);
 		}
 
-		if (onDisconnect != null) {
-			m = m.doOnNext(c -> c.onClose(() -> onDisconnect.accept(c)));
+		if (onUnbound != null) {
+			m = m.doOnNext(c -> c.onDispose(() -> onUnbound.accept(c)));
 		}
 
 		return m;
@@ -61,6 +63,6 @@ final class TcpClientLifecycle extends TcpClientOperator implements Consumer<Con
 
 	@Override
 	public void accept(Connection o) {
-		onConnected.accept(o);
+		onBound.accept(o);
 	}
 }

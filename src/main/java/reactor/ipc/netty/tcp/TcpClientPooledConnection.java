@@ -14,28 +14,38 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp.x;
+package reactor.ipc.netty.tcp;
 
 import java.util.Objects;
+import java.util.function.Supplier;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.BootstrapConfig;
+import io.netty.channel.Channel;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.pool.ChannelPool;
+import io.netty.handler.ssl.JdkSslContext;
 import io.netty.util.AttributeKey;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.channel.BootstrapHandlers;
+import reactor.ipc.netty.channel.ChannelOperations;
+import reactor.ipc.netty.channel.ContextHandler;
+import reactor.ipc.netty.resources.LoopResources;
 import reactor.ipc.netty.resources.PoolResources;
-import reactor.ipc.netty.tcp.TcpResources;
 
 /**
  * @author Stephane Maldini
  */
 final class TcpClientPooledConnection extends TcpClient {
 
-	static final AttributeKey<Boolean> POOL_KEY = AttributeKey.newInstance("POOL_KEY");
-
 	static final TcpClientPooledConnection INSTANCE =
 			new TcpClientPooledConnection(TcpResources.get());
+
+	static final ChannelOperations.OnNew<Channel> EMPTY = (a, b, c) -> null;
+
+	static final ChannelOperations.OnNew<Channel> CHANNEL_OP_FACTORY =
+			(ch, c, msg) -> ChannelOperations.bind(ch, c);
 
 	final PoolResources poolResources;
 
@@ -44,20 +54,35 @@ final class TcpClientPooledConnection extends TcpClient {
 	}
 
 	@Override
-	protected Bootstrap configure() {
-		return super.configure().attr(POOL_KEY, true);
-	}
-
-	@Override
+	@SuppressWarnings("unchecked")
 	protected Mono<? extends Connection> connect(Bootstrap b) {
 		BootstrapConfig bc = b.config();
 
-		ChannelPool pool = poolResources.selectOrCreate(remote,
-				b,
-				doHandler(null, sink, secure, remote, null, null),
-				options.getLoopResources()
-				       .onClient(options.preferNative()));
+		//Default group and channel
+		if (b.config()
+		     .group() == null) {
 
-		contextHandler.setFuture(pool.acquire());
+			LoopResources loops = TcpResources.get();
+
+			boolean useNative =
+					LoopResources.DEFAULT_NATIVE && !(TcpUtils.findSslContext(b) instanceof JdkSslContext);
+
+			//bypass colocation in default resources
+			EventLoopGroup elg = ((Supplier<EventLoopGroup>) loops.onClient(useNative)).get();
+
+			b.group(elg)
+			 .channel(loops.onChannel(elg));
+		}
+
+		return Mono.create(sink -> {
+
+			ContextHandler<Channel> contextHandler = ContextHandler.newClientContext(sink, EMPTY);
+			ChannelPool pool = poolResources.selectOrCreate(bc.remoteAddress(), b, contextHandler, bc.group());
+
+			BootstrapHandlers.configure(b, "init", contextHandler);
+
+			ContextHandler.newClientContext(sink, CHANNEL_OP_FACTORY)
+			              .setFuture(pool.acquire());
+		});
 	}
 }

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp.x;
+package reactor.ipc.netty.tcp;
 
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -22,6 +22,7 @@ import java.util.function.Consumer;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.resolver.DefaultAddressResolverGroup;
 import io.netty.resolver.NoopAddressResolverGroup;
+import reactor.ipc.netty.channel.BootstrapHandlers;
 
 /**
  * @author Stephane Maldini
@@ -45,7 +46,7 @@ final class TcpClientProxy extends TcpClientOperator {
 
 		proxyOptions.accept(builder);
 
-		b = Handlers.addOrUpdateProxySupport(b, builder.build());
+		b = TcpUtils.addOrReplaceProxySupport(b, builder.build());
 
 		if (b.config()
 		     .resolver() == DefaultAddressResolverGroup.INSTANCE) {

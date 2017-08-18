@@ -22,8 +22,12 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelOutboundHandler;
 import io.netty.channel.socket.ServerSocketChannel;
 import io.netty.channel.socket.SocketChannel;
+import org.reactivestreams.Subscription;
+import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
+import reactor.core.publisher.BaseSubscriber;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.SignalType;
 
 /**
  * Hold contextual information for the underlying {@link Channel}
@@ -198,9 +202,32 @@ public interface Connection extends Disposable {
 	 */
 	Channel channel();
 
+	/**
+	 * Release or close the underlying {@link Channel}
+	 */
 	@Override
 	default void dispose() {
 		channel().close();
+	}
+
+	/**
+	 * Return a {@link CoreSubscriber} that will dispose on complete or error
+	 */
+	default CoreSubscriber<Void> disposeSubscriber() {
+		return new BaseSubscriber<Void>() {
+
+			@Override
+			protected void hookOnSubscribe(Subscription subscription) {
+				onDispose(this);
+			}
+
+			@Override
+			protected void hookFinally(SignalType type) {
+				if( type != SignalType.CANCEL) {
+					dispose();
+				}
+			}
+		};
 	}
 
 	@Override
@@ -238,19 +265,19 @@ public interface Connection extends Disposable {
 	 *
 	 * @return a {@link Mono} terminating with success if shutdown successfully or error
 	 */
-	default Mono<Void> onClose(){
+	default Mono<Void> onDispose(){
 		return FutureMono.from(channel().closeFuture());
 	}
 
 	/**
 	 * Assign a {@link Runnable} to be invoked when the channel is closed.
 	 *
-	 * @param onClose the close event handler
+	 * @param onDispose the close event handler
 	 *
 	 * @return {@literal this}
 	 */
-	default Connection onClose(Runnable onClose){
-		onClose().subscribe(null, e -> onClose.run(), onClose);
+	default Connection onDispose(Disposable onDispose){
+		onDispose().subscribe(null, e -> onDispose.dispose(), onDispose::dispose);
 		return this;
 	}
 

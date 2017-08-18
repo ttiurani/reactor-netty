@@ -27,6 +27,7 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import org.junit.Test;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.ipc.netty.BlockingConnection;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyPipeline;
 
@@ -47,7 +48,7 @@ public class BlockingConnectionTest {
 		}
 
 		@Override
-		public Mono<Void> onClose() {
+		public Mono<Void> onDispose() {
 			return Mono.never();
 		}
 	};

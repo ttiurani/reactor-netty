@@ -229,4 +229,7 @@ public interface LoopResources extends Disposable {
 	default Mono<Void> disposeLater() {
 		return Mono.empty(); //noop default
 	}
+
+	boolean DEFAULT_NATIVE =
+			Boolean.parseBoolean(System.getProperty("reactor.ipc.netty.epoll", "true"));
 }

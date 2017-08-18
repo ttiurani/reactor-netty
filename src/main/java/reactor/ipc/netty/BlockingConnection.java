@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp;
+package reactor.ipc.netty;
 
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
 
 import reactor.core.publisher.Mono;
-import reactor.ipc.netty.Connection;
 import reactor.util.Logger;
 import reactor.util.Loggers;
 
@@ -54,7 +53,7 @@ public class BlockingConnection {
 				.doOnNext(ctx -> LOG.info("Started {} on {}", description, ctx.address()))
 				.block();
 
-		context.onClose().subscribe(null,
+		context.onDispose().subscribe(null,
 				e -> LOG.error("Stopped {} on {} with an error {}", description, context.address(), e),
 				() -> LOG.info("Stopped {} on {}", description, context.address()));
 	}
@@ -107,7 +106,7 @@ public class BlockingConnection {
 			return;
 		}
 		context.dispose();
-		context.onClose()
+		context.onDispose()
 		       .timeout(lifecycleTimeout, Mono.error(new TimeoutException(description + " couldn't be stopped within " + lifecycleTimeout.toMillis() + "ms")))
 		       .block();
 	}

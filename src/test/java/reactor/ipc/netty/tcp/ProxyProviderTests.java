@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package reactor.ipc.netty.tcp.x;
+package reactor.ipc.netty.tcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -24,8 +24,8 @@ import org.junit.Test;
 import io.netty.handler.proxy.HttpProxyHandler;
 import io.netty.handler.proxy.Socks4ProxyHandler;
 import io.netty.handler.proxy.Socks5ProxyHandler;
-import reactor.ipc.netty.tcp.x.ProxyProvider;
-import reactor.ipc.netty.tcp.x.ProxyProvider.Proxy;
+import reactor.ipc.netty.tcp.ProxyProvider;
+import reactor.ipc.netty.tcp.ProxyProvider.Proxy;
 
 public class ProxyProviderTests {
 

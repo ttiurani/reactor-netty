@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp.x;
+package reactor.ipc.netty.tcp;
 
-import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -35,9 +35,13 @@ import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.resolver.AddressResolverGroup;
 import io.netty.util.AttributeKey;
 import io.netty.util.NetUtil;
+import org.reactivestreams.Publisher;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.NettyInbound;
+import reactor.ipc.netty.NettyOutbound;
+import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.resources.LoopResources;
 import reactor.ipc.netty.resources.PoolResources;
 
@@ -67,15 +71,6 @@ import reactor.ipc.netty.resources.PoolResources;
  * @author Stephane Maldini
  */
 public abstract class TcpClient {
-
-
-	/**
-	 * The default port for reactor-netty servers. Defaults to 12012 but can be tuned via
-	 * the {@code PORT} <b>environment variable</b>.
-	 */
-	public static final int DEFAULT_PORT =
-			System.getenv("PORT") != null ? Integer.parseInt(System.getenv("PORT")) :
-					12012;
 
 	/**
 	 * Prepare a pooled {@link TcpClient}
@@ -238,7 +233,22 @@ public abstract class TcpClient {
 	 */
 	public final TcpClient host(String host) {
 		Objects.requireNonNull(host, "host");
-		return bootstrap(b -> b.remoteAddress(host, getPort(b)));
+		return bootstrap(b -> b.remoteAddress(host, TcpUtils.getPort(b)));
+	}
+
+	/**
+	 * Attach an IO handler to react on connected client
+	 *
+	 * @param handler an IO handler that can dispose underlying connection when {@link
+	 * Publisher} terminates.
+	 *
+	 * @return a new {@link TcpClient}
+	 */
+	public final TcpClient handler(BiFunction<? super NettyInbound, ? super NettyOutbound, ? extends Publisher<Void>> handler) {
+		Objects.requireNonNull(handler, "handler");
+		return doOnConnected(c -> Mono.fromDirect(handler.apply((NettyInbound) c,
+				(NettyOutbound) c))
+		                              .subscribe(c.disposeSubscriber()));
 	}
 
 	/**
@@ -267,7 +277,7 @@ public abstract class TcpClient {
 	 * @return a new {@link TcpClient}
 	 */
 	public final TcpClient port(int port) {
-		return bootstrap(b -> b.remoteAddress(getHost(b), port));
+		return bootstrap(b -> b.remoteAddress(TcpUtils.getHost(b), port));
 	}
 
 	/**
@@ -317,7 +327,7 @@ public abstract class TcpClient {
 	 * @return a new {@link TcpClient}
 	 */
 	public final TcpClient runOn(LoopResources channelResources) {
-		return runOn(channelResources, DEFAULT_NATIVE);
+		return runOn(channelResources, LoopResources.DEFAULT_NATIVE);
 	}
 
 	/**
@@ -343,7 +353,8 @@ public abstract class TcpClient {
 	 * @return a new {@link TcpClient}
 	 */
 	public final TcpClient secure() {
-		return secure(TcpClientSecure.DEFAULT_SSL_CONTEXT, DEFAULT_SSL_HANDSHAKE_TIMEOUT);
+		return secure(TcpClientSecure.DEFAULT_SSL_CONTEXT,
+				TcpUtils.DEFAULT_SSL_HANDSHAKE_TIMEOUT);
 	}
 
 	/**
@@ -357,7 +368,7 @@ public abstract class TcpClient {
 	 * @return a new {@link TcpClient}
 	 */
 	public final TcpClient secure(Consumer<? super SslContextBuilder> configurator) {
-		return secure(configurator, DEFAULT_SSL_HANDSHAKE_TIMEOUT);
+		return secure(configurator, TcpUtils.DEFAULT_SSL_HANDSHAKE_TIMEOUT);
 	}
 
 	/**
@@ -387,7 +398,7 @@ public abstract class TcpClient {
 	public final TcpClient secure(SslContext sslContext, Duration handshakeTimeout) {
 		Objects.requireNonNull(sslContext, "sslContext");
 		Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
-		return bootstrap(b -> Handlers.addOrUpdateSslSupport(b,
+		return bootstrap(b -> TcpUtils.addOrUpdateSslSupport(b,
 				sslContext,
 				handshakeTimeout));
 	}
@@ -398,7 +409,7 @@ public abstract class TcpClient {
 	 * @return a new {@link TcpClient}
 	 */
 	public final TcpClient unproxy() {
-		return bootstrap(Handlers.REMOVE_PROXY);
+		return bootstrap(TcpUtils.REMOVE_PROXY);
 	}
 
 	/**
@@ -407,7 +418,7 @@ public abstract class TcpClient {
 	 * @return a new {@link TcpClient}
 	 */
 	public final TcpClient unsecure() {
-		return bootstrap(Handlers.removeSslSupport());
+		return bootstrap(TcpUtils::removeSslSupport);
 	}
 	/**
 	 * Apply a wire logger configuration using {@link TcpServer} category
@@ -415,7 +426,7 @@ public abstract class TcpClient {
 	 * @return a new {@link TcpServer}
 	 */
 	public final TcpClient wiretap() {
-		return bootstrap(b -> Handlers.addOrUpdateLogSupport(b, LOGGING_HANDLER));
+		return bootstrap(b -> BootstrapHandlers.addOrUpdateLogSupport(b, LOGGING_HANDLER));
 	}
 
 	/**
@@ -440,7 +451,7 @@ public abstract class TcpClient {
 	public final TcpClient wiretap(String category, LogLevel level) {
 		Objects.requireNonNull(category, "category");
 		Objects.requireNonNull(level, "level");
-		return bootstrap(b -> Handlers.addOrUpdateLogSupport(b,
+		return bootstrap(b -> BootstrapHandlers.addOrUpdateLogSupport(b,
 				new LoggingHandler(category, level)));
 	}
 
@@ -468,35 +479,7 @@ public abstract class TcpClient {
 			               .option(ChannelOption.AUTO_READ, false)
 			               .option(ChannelOption.SO_RCVBUF, 1024 * 1024)
 			               .option(ChannelOption.SO_SNDBUF, 1024 * 1024)
-			               .remoteAddress(NetUtil.LOCALHOST, DEFAULT_PORT);
-
-	static final boolean DEFAULT_NATIVE =
-			Boolean.parseBoolean(System.getProperty("reactor.ipc.netty.epoll", "true"));
-
-	static final Duration DEFAULT_SSL_HANDSHAKE_TIMEOUT =
-			Duration.ofMillis(Integer.parseInt(System.getProperty(
-					"reactor.ipc.netty.sslHandshakeTimeout",
-					"10000")));
+			               .remoteAddress(NetUtil.LOCALHOST, TcpUtils.DEFAULT_PORT);
 
 	static final LoggingHandler LOGGING_HANDLER = new LoggingHandler(TcpClient.class);
-
-	@SuppressWarnings("unchecked")
-	static String getHost(Bootstrap b) {
-		if (b.config()
-		     .remoteAddress() instanceof InetSocketAddress) {
-			return ((InetSocketAddress) b.config()
-			                             .remoteAddress()).getHostName();
-		}
-		return NetUtil.LOCALHOST.getHostName();
-	}
-
-	@SuppressWarnings("unchecked")
-	static int getPort(Bootstrap b) {
-		if (b.config()
-		     .remoteAddress() instanceof InetSocketAddress) {
-			return ((InetSocketAddress) b.config()
-			                             .remoteAddress()).getPort();
-		}
-		return DEFAULT_PORT;
-	}
 }

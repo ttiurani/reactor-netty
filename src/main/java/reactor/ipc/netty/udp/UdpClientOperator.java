@@ -13,30 +13,32 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package reactor.ipc.netty.tcp.x;
+package reactor.ipc.netty.udp;
 
 import java.util.Objects;
-import java.util.function.Function;
 
 import io.netty.bootstrap.Bootstrap;
-import io.netty.bootstrap.ServerBootstrap;
+import reactor.core.publisher.Mono;
+import reactor.ipc.netty.Connection;
 
 /**
  * @author Stephane Maldini
  */
-final class TcpServerBootstrap extends TcpServerOperator {
+abstract class UdpClientOperator extends UdpClient {
 
+	final UdpClient source;
 
-	final Function<? super ServerBootstrap, ? extends ServerBootstrap> bootstrapMapper;
-
-	TcpServerBootstrap(TcpServer server,
-			Function<? super ServerBootstrap, ? extends ServerBootstrap> bootstrapMapper) {
-		super(server);
-		this.bootstrapMapper = Objects.requireNonNull(bootstrapMapper, "bootstrapMapper");
+	UdpClientOperator(UdpClient source) {
+		this.source = Objects.requireNonNull(source, "source");
 	}
 
 	@Override
-	protected ServerBootstrap configure() {
-		return Objects.requireNonNull(bootstrapMapper.apply(source.configure()), "bootstrapMapper");
+	protected Bootstrap configure() {
+		return source.configure();
+	}
+
+	@Override
+	protected Mono<? extends Connection> bind(Bootstrap b) {
+		return source.bind(b);
 	}
 }

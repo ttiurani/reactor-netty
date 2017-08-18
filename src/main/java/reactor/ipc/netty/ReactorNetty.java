@@ -153,7 +153,7 @@ final class ReactorNetty {
 			String name,
 			Connection context) {
 		if (!shouldCleanupOnClose) return;
-		context.onClose(() -> context.removeHandler(name));
+		context.onDispose(() -> context.removeHandler(name));
 	}
 
 	static void removeHandler(Channel channel, String name){
@@ -202,7 +202,7 @@ final class ReactorNetty {
 
 	/**
 	 * Determines if user-provided handlers registered on the given channel should
-	 * automatically be registered for removal through a {@link Connection#onClose(Runnable)}
+	 * automatically be registered for removal through a {@link Connection#onDispose(reactor.core.Disposable)}
 	 * (or similar on close hook). This depends on the
 	 * {@link Connection#isPersistent(Channel)} ()}
 	 * attribute.

@@ -14,16 +14,18 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp.x;
+package reactor.ipc.netty.tcp;
 
 import java.net.InetSocketAddress;
 
 import org.junit.Before;
 import org.junit.Test;
+import reactor.ipc.netty.tcp.Handlers;
+import reactor.ipc.netty.tcp.ProxyProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class HandlersTest {
+public class BootstrapHandlersTest {
 
 	private ProxyProvider proxyOptions;
 

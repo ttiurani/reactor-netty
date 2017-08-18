@@ -14,15 +14,15 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp.x;
+package reactor.ipc.netty.tcp;
 
 import java.util.Objects;
 import java.util.function.Supplier;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.handler.ssl.JdkSslContext;
+import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.resources.LoopResources;
 
 /**
@@ -40,22 +40,15 @@ final class TcpClientRunOn extends TcpClientOperator {
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	protected Bootstrap configure() {
 		Bootstrap b = source.configure();
 
-		boolean useNative = preferNative && !(Handlers.getSslContext(b) instanceof JdkSslContext);
+		boolean useNative = preferNative && !(TcpUtils.findSslContext(b) instanceof JdkSslContext);
 		EventLoopGroup elg = loopResources.onClient(useNative);
 
-		if (b.config().attrs().get(TcpClientPooledConnection.POOL_KEY) != null
-				&& elg instanceof Supplier) {
-			//don't colocate
-			b.group(((Supplier<EventLoopGroup>) elg).get());
-		}
-		else {
-			b.group(elg);
-		}
-
-		b.channel(loopResources.onChannel(elg));
+		b.channel(loopResources.onChannel(elg))
+		 .group(elg);
 
 		return b;
 	}

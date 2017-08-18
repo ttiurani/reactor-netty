@@ -14,13 +14,14 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp.x;
+package reactor.ipc.netty.tcp;
 
 import java.util.Objects;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.EventLoopGroup;
 import io.netty.handler.ssl.JdkSslContext;
+import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.resources.LoopResources;
 
 /**
@@ -42,7 +43,7 @@ final class TcpServerRunOn extends TcpServerOperator {
 		ServerBootstrap b = source.configure();
 
 		boolean useNative =
-				preferNative && !(Handlers.getSslContext(b) instanceof JdkSslContext);
+				preferNative && !(TcpUtils.findSslContext(b) instanceof JdkSslContext);
 		EventLoopGroup selectorGroup = loopResources.onServerSelect(useNative);
 		EventLoopGroup elg = loopResources.onServer(useNative);
 

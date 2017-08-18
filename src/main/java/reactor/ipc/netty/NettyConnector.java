@@ -24,7 +24,6 @@ import io.netty.buffer.ByteBuf;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Mono;
 import reactor.ipc.connector.Connector;
-import reactor.ipc.netty.tcp.BlockingConnection;
 
 /**
  * A Netty {@link Connector}
@@ -77,7 +76,7 @@ public interface NettyConnector<INBOUND extends NettyInbound, OUTBOUND extends N
 		Runtime.getRuntime().addShutdownHook(new Thread(facade::shutdown));
 
 		facade.getContext()
-		      .onClose()
+		      .onDispose()
 		      .block();
 	}
 }

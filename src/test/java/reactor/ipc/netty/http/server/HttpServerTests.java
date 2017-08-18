@@ -85,7 +85,7 @@ public class HttpServerTests {
 				          .block(Duration.ofSeconds(120));
 
 		context.dispose();
-		context.onClose().block();
+		context.onDispose().block();
 
 		String body = response.receive().aggregate().asString(StandardCharsets.UTF_8).block();
 
@@ -142,7 +142,7 @@ public class HttpServerTests {
 				          .block(Duration.ofSeconds(120));
 
 		context.dispose();
-		context.onClose().block();
+		context.onDispose().block();
 
 		String body = response.receive().aggregate().asString(StandardCharsets.UTF_8).block();
 
@@ -167,7 +167,7 @@ public class HttpServerTests {
 		assertThat(response.status().code()).isEqualTo(200);
 		// dispose the Netty context and wait for the channel close
 		context.dispose();
-		context.onClose().block();
+		context.onDispose().block();
 
 		//REQUIRED - bug pool does not detect/translate properly lifecycle
 		HttpResources.reset();
@@ -181,7 +181,7 @@ public class HttpServerTests {
 		// fails, response status is 200 and debugging shows the the previous handler is called
 		assertThat(response.status().code()).isEqualTo(201);
 		context.dispose();
-		context.onClose().block();
+		context.onDispose().block();
 	}
 
 	@Test

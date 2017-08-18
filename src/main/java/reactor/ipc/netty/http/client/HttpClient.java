@@ -51,8 +51,6 @@ import reactor.ipc.netty.http.HttpResources;
 import reactor.ipc.netty.http.server.HttpServerResponse;
 import reactor.ipc.netty.http.websocket.WebsocketInbound;
 import reactor.ipc.netty.http.websocket.WebsocketOutbound;
-import reactor.ipc.netty.options.ClientOptions;
-import reactor.ipc.netty.tcp.TcpClient;
 
 /**
  * The base class for a Netty-based Http client.

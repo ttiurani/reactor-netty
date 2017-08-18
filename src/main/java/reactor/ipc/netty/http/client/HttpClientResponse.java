@@ -23,6 +23,7 @@ import io.netty.handler.codec.http.HttpContent;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import org.reactivestreams.Publisher;
+import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.ByteBufFlux;
@@ -77,7 +78,7 @@ public interface HttpClientResponse extends NettyInbound, HttpInfos, Connection 
 	HttpClientResponse replaceHandler(String name, ChannelHandler handler);
 
 	@Override
-	HttpClientResponse onClose(Runnable onClose);
+	HttpClientResponse onDispose(Disposable onDispose);
 
 	@Override
 	default HttpClientResponse onReadIdle(long idleTimeout, Runnable onReadIdle) {

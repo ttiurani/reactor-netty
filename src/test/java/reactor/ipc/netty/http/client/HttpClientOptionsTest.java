@@ -18,7 +18,7 @@ package reactor.ipc.netty.http.client;
 
 import org.junit.Before;
 import org.junit.Test;
-import reactor.ipc.netty.tcp.x.ProxyProvider;
+import reactor.ipc.netty.tcp.ProxyProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

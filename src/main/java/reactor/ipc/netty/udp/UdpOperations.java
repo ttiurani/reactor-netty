@@ -38,17 +38,14 @@ final class UdpOperations extends ChannelOperations<UdpInbound, UdpOutbound>
 		implements UdpInbound, UdpOutbound {
 
 	static UdpOperations bind(DatagramChannel channel,
-			BiFunction<? super UdpInbound, ? super UdpOutbound, ? extends Publisher<Void>> handler,
 			ContextHandler<?> context) {
-		return new UdpOperations(channel, handler, context);
+		return new UdpOperations(channel, context);
 	}
 
 	final DatagramChannel  datagramChannel;
 
-	UdpOperations(DatagramChannel channel,
-			BiFunction<? super UdpInbound, ? super UdpOutbound, ? extends Publisher<Void>> handler,
-			ContextHandler<?> context) {
-		super(channel, handler, context);
+	UdpOperations(DatagramChannel channel, ContextHandler<?> context) {
+		super(channel, context);
 		this.datagramChannel = channel;
 	}
 

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp.x;
+package reactor.ipc.netty.tcp;
 
 import java.util.function.Consumer;
 
@@ -54,7 +54,7 @@ final class TcpServerLifecycle extends TcpServerOperator implements Consumer<Con
 		}
 
 		if (onUnbound != null) {
-			m = m.doOnNext(c -> c.onClose(() -> onUnbound.accept(c)));
+			m = m.doOnNext(c -> c.onDispose(() -> onUnbound.accept(c)));
 		}
 
 		return m;

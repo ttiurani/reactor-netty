@@ -14,72 +14,66 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp.x;
+package reactor.ipc.netty.tcp;
 
 import java.time.Duration;
 import java.util.Objects;
 import java.util.function.Consumer;
 
-import io.netty.bootstrap.ServerBootstrap;
+import io.netty.bootstrap.Bootstrap;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
-import io.netty.handler.ssl.util.SelfSignedCertificate;
 import reactor.core.Exceptions;
+import reactor.core.publisher.Mono;
+import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.channel.BootstrapHandlers;
 
 /**
  * @author Stephane Maldini
  */
-final class TcpServerSecure extends TcpServerOperator {
+final class TcpClientSecure extends TcpClientOperator {
 
 	final Consumer<? super SslContextBuilder> configurator;
 	final Duration                            handshakeTimeout;
 
-	TcpServerSecure(TcpServer server,
+	TcpClientSecure(TcpClient client,
 			Consumer<? super SslContextBuilder> configurator,
 			Duration handshakeTimeout) {
-		super(server);
+		super(client);
 		this.configurator = Objects.requireNonNull(configurator, "configurator");
-		this.handshakeTimeout =
-				Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
+		this.handshakeTimeout = Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
 	}
 
 	@Override
-	protected ServerBootstrap configure() {
+	protected Bootstrap configure() {
+		Bootstrap b = source.configure();
 
-		ServerBootstrap b = source.configure();
-
-		Objects.requireNonNull(configurator, "configurator");
 		try {
-			SslContextBuilder builder = SslContextBuilder.forServer(
-					DEFAULT_SSL_CONTEXT_SELF.certificate(),
-					DEFAULT_SSL_CONTEXT_SELF.privateKey());
-
+			SslContextBuilder builder = SslContextBuilder.forClient();
 			configurator.accept(builder);
-			return Handlers.addOrUpdateSslSupport(b, builder.build(), handshakeTimeout);
+			return TcpUtils.addOrUpdateSslSupport(b, builder.build(), handshakeTimeout);
 		}
 		catch (Exception sslException) {
 			throw Exceptions.propagate(sslException);
 		}
 	}
 
-	static final SelfSignedCertificate DEFAULT_SSL_CONTEXT_SELF;
-	static final SslContext            DEFAULT_SSL_CONTEXT;
+	@Override
+	protected Mono<? extends Connection> connect(Bootstrap b) {
+		return source.connect(b);
+	}
+
+	static final SslContext DEFAULT_SSL_CONTEXT;
 
 	static {
 		SslContext sslContext;
-		SelfSignedCertificate cert;
 		try {
-			cert = new SelfSignedCertificate();
-			sslContext =
-					SslContextBuilder.forServer(cert.certificate(), cert.privateKey())
-					                 .build();
+			sslContext = SslContextBuilder.forClient()
+			                              .build();
 		}
 		catch (Exception e) {
-			cert = null;
 			sslContext = null;
 		}
 		DEFAULT_SSL_CONTEXT = sslContext;
-		DEFAULT_SSL_CONTEXT_SELF = cert;
 	}
-
 }

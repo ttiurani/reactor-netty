@@ -21,7 +21,6 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
-import java.util.function.BiFunction;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufHolder;
@@ -40,7 +39,6 @@ import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.stream.ChunkedInput;
 import io.netty.handler.stream.ChunkedNioFile;
-import org.reactivestreams.Publisher;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
@@ -76,9 +74,8 @@ public abstract class HttpOperations<INBOUND extends NettyInbound, OUTBOUND exte
 	}
 
 	protected HttpOperations(Channel ioChannel,
-			BiFunction<? super INBOUND, ? super OUTBOUND, ? extends Publisher<Void>> handler,
 			ContextHandler<?> context) {
-		super(ioChannel, handler, context);
+		super(ioChannel, context);
 		//reset channel to manual read if re-used
 		ioChannel.config().setAutoRead(false);
 	}
@@ -238,7 +235,7 @@ public abstract class HttpOperations<INBOUND extends NettyInbound, OUTBOUND exte
 			c.channel().pipeline().addBefore(name, extractorName, HTTP_EXTRACTOR);
 
 			if(Connection.isPersistent(c.channel())){
-				c.onClose(() -> c.removeHandler(extractorName));
+				c.onDispose(() -> c.removeHandler(extractorName));
 			}
 
 		}

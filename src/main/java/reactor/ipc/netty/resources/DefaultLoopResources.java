@@ -92,6 +92,7 @@ final class DefaultLoopResources extends AtomicLong implements LoopResources {
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public Mono<Void> disposeLater() {
 		return Mono.defer(() -> {
 			EventLoopGroup cacheNativeClientGroup = cacheNativeClientLoops.get();

@@ -39,7 +39,7 @@ import reactor.ipc.netty.NettyPipeline;
 import reactor.ipc.netty.channel.ContextHandler;
 import reactor.ipc.netty.http.HttpResources;
 import reactor.ipc.netty.options.ServerOptions;
-import reactor.ipc.netty.tcp.BlockingConnection;
+import reactor.ipc.netty.BlockingConnection;
 import reactor.ipc.netty.tcp.TcpServer;
 
 /**

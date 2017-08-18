@@ -14,13 +14,17 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp.x;
+package reactor.ipc.netty.tcp;
 
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.EventLoopGroup;
+import io.netty.handler.ssl.JdkSslContext;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.channel.ChannelOperations;
 import reactor.ipc.netty.channel.ContextHandler;
+import reactor.ipc.netty.resources.LoopResources;
 
 /**
  * @author Stephane Maldini
@@ -31,11 +35,28 @@ final class TcpServerBind extends TcpServer {
 
 	@Override
 	protected Mono<? extends Connection> bind(ServerBootstrap b) {
-		return Mono.create(sink -> {
-			ContextHandler<?> contextHandler = ContextHandler.newServerContext(sink,
-					(ch, c, msg) -> ChannelOperations.bind(ch, handler, c));
+		if (b.config()
+		     .group() == null) {
 
-			Handlers.addPipelineConsumer(b, "init", contextHandler);
+			LoopResources loops = TcpResources.get();
+
+			boolean useNative =
+					LoopResources.DEFAULT_NATIVE && !(TcpUtils.findSslContext(b) instanceof JdkSslContext);
+
+			EventLoopGroup elgParent = loops.onServerSelect(useNative);
+			EventLoopGroup elg = loops.onServer(useNative);
+
+			b.group(elgParent, elg)
+			 .channel(loops.onServerChannel(elg));
+		}
+
+		return Mono.create(sink -> {
+
+			ContextHandler<?> contextHandler = ContextHandler.newServerContext(sink,
+					(ch, c, msg) -> ChannelOperations.bind(ch, c));
+
+			BootstrapHandlers.finalize(b, contextHandler);
+
 			contextHandler.setFuture(b.bind());
 		});
 	}

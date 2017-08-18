@@ -28,9 +28,9 @@ import io.netty.channel.socket.DatagramChannel;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.util.Attribute;
 import io.netty.util.AttributeKey;
-import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
+import reactor.core.Disposable;
 import reactor.core.publisher.DirectProcessor;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -164,18 +164,23 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	}
 
 	@Override
+	public CoreSubscriber<Void> disposeSubscriber() {
+		return this;
+	}
+
+	@Override
 	public final boolean isDisposed() {
 		return get(channel()) != this;
 	}
 
 	@Override
-	public final Mono<Void> onClose() {
+	public final Mono<Void> onDispose() {
 		return Mono.fromDirect(onInactive);
 	}
 
 	@Override
-	public Connection onClose(final Runnable onClose) {
-		onInactive.subscribe(null, e -> onClose.run(), onClose);
+	public Connection onDispose(final Disposable onDispose) {
+		onInactive.subscribe(null, e -> onDispose.dispose(), onDispose::dispose);
 		return this;
 	}
 
@@ -332,21 +337,6 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 		discreteRemoteClose(err);
 		markPersistent(false);
 		onHandlerTerminate();
-	}
-
-	/**
-	 * Apply the user-provided {@link NettyConnector} handler
-	 */
-	@SuppressWarnings("unchecked")
-	protected final void applyHandler() {
-//		channel.pipeline()
-//		       .fireUserEventTriggered(NettyPipeline.handlerStartedEvent());
-		if (log.isDebugEnabled()) {
-			log.debug("[{}] {} handler is being applied: {}", formatName(), channel
-					(), handler);
-		}
-		Mono.fromDirect(handler.apply((INBOUND) this, (OUTBOUND) this))
-		       .subscribe(this);
 	}
 
 	/**

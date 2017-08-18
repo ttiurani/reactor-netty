@@ -25,7 +25,7 @@ import org.junit.Test;
 import io.netty.channel.embedded.EmbeddedChannel;
 import reactor.ipc.netty.NettyPipeline;
 import reactor.ipc.netty.options.ClientOptions;
-import reactor.ipc.netty.tcp.x.ProxyProvider.Proxy;
+import reactor.ipc.netty.tcp.ProxyProvider.Proxy;
 
 public class ClientContextHandlerTest {
 
