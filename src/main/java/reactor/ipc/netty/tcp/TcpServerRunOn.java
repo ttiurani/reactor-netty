@@ -42,8 +42,7 @@ final class TcpServerRunOn extends TcpServerOperator {
 	protected ServerBootstrap configure() {
 		ServerBootstrap b = source.configure();
 
-		boolean useNative =
-				preferNative && !(TcpUtils.findSslContext(b) instanceof JdkSslContext);
+		boolean useNative = preferNative && !(sslContext() instanceof JdkSslContext);
 		EventLoopGroup selectorGroup = loopResources.onServerSelect(useNative);
 		EventLoopGroup elg = loopResources.onServer(useNative);
 

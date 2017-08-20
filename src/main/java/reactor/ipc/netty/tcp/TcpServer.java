@@ -20,7 +20,6 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.time.Duration;
 import java.util.Objects;
-import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -37,12 +36,9 @@ import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.util.AttributeKey;
 import io.netty.util.NetUtil;
-import org.reactivestreams.Publisher;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
-import reactor.ipc.netty.NettyInbound;
-import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.resources.LoopResources;
 
@@ -55,8 +51,8 @@ import reactor.ipc.netty.resources.LoopResources;
  * is called.
  * <p>
  * <p> Example:
- * <p>
- * {@code UdpClient.create()
+ * <pre>
+ * {@code TcpServer.create()
  * .doOnBind(startMetrics)
  * .doOnBound(startedMetrics)
  * .doOnUnbind(stopMetrics)
@@ -115,7 +111,7 @@ public abstract class TcpServer {
 	 * and returning a new one to be ultimately used for socket binding. <p> Configuration
 	 * will apply during {@link #configure()} phase.
 	 *
-	 * @param bootstrapMapper A bootstrap mapping function to configure and return an
+	 * @param bootstrapMapper A bootstrap mapping function to update configuration and return an
 	 * enriched bootstrap.
 	 *
 	 * @return a new {@link TcpServer}
@@ -130,7 +126,7 @@ public abstract class TcpServer {
 	 * Connection} has been emitted and is not necessary anymore, disposing main server
 	 * loop must be done by the user via {@link Connection#dispose()}.
 	 *
-	 * If configure phase fails, a {@link Mono#error(Throwable)} will be returned;
+	 * If updateConfiguration phase fails, a {@link Mono#error(Throwable)} will be returned;
 	 *
 	 * @return a {@link Mono} of {@link Connection}
 	 */
@@ -215,6 +211,15 @@ public abstract class TcpServer {
 	public final TcpServer host(String host) {
 		Objects.requireNonNull(host, "host");
 		return bootstrap(b -> b.localAddress(host, getPort(b)));
+	}
+
+	/**
+	 * Return true if that {@link TcpServer} secured via SSL transport
+	 *
+	 * @return true if that {@link TcpServer} secured via SSL transport
+	 */
+	public final boolean isSecure(){
+		return sslContext() != null;
 	}
 
 	/**
@@ -337,11 +342,7 @@ public abstract class TcpServer {
 	 * @return a new {@link TcpServer}
 	 */
 	public final TcpServer secure(SslContext sslContext, Duration handshakeTimeout) {
-		Objects.requireNonNull(sslContext, "sslContext");
-		Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
-		return bootstrap(b -> TcpUtils.addOrUpdateSslSupport(b,
-				sslContext,
-				handshakeTimeout));
+		return new TcpServerSecure(this, sslContext, handshakeTimeout);
 	}
 
 	/**
@@ -381,6 +382,17 @@ public abstract class TcpServer {
 	}
 
 	/**
+	 * Return the current {@link SslContext} if that {@link TcpServer} secured via SSL
+	 * transport or null
+	 *
+	 * @return he current {@link SslContext} if that {@link TcpServer} secured via SSL
+	 * transport or null
+	 */
+	public SslContext sslContext(){
+		return null;
+	}
+
+	/**
 	 * Remove any previously applied Proxy configuration customization
 	 *
 	 * @return a new {@link TcpServer}
@@ -395,7 +407,7 @@ public abstract class TcpServer {
 	 * @return a new {@link TcpServer}
 	 */
 	public final TcpServer wiretap() {
-		return bootstrap(b -> BootstrapHandlers.addOrUpdateLogSupport(b, LOGGING_HANDLER));
+		return bootstrap(b -> BootstrapHandlers.updateLogSupport(b, LOGGING_HANDLER));
 	}
 
 	/**
@@ -420,7 +432,7 @@ public abstract class TcpServer {
 	public final TcpServer wiretap(String category, LogLevel level) {
 		Objects.requireNonNull(category, "category");
 		Objects.requireNonNull(level, "level");
-		return bootstrap(b -> BootstrapHandlers.addOrUpdateLogSupport(b,
+		return bootstrap(b -> BootstrapHandlers.updateLogSupport(b,
 				new LoggingHandler(category, level)));
 	}
 
@@ -455,6 +467,10 @@ public abstract class TcpServer {
 			                     .childOption(ChannelOption.TCP_NODELAY, true)
 			                     .childOption(ChannelOption.CONNECT_TIMEOUT_MILLIS, 30000)
 			                     .localAddress(NetUtil.LOCALHOST.getHostName(), TcpUtils.DEFAULT_PORT);
+
+	static {
+		BootstrapHandlers.channelOperationFactory(DEFAULT_BOOTSTRAP, TcpUtils.TCP_OPS);
+	}
 
 	static final LoggingHandler LOGGING_HANDLER = new LoggingHandler(TcpServer.class);
 

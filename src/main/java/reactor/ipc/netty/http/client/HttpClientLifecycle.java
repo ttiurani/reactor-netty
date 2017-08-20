@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package reactor.ipc.netty.tcp;
+package reactor.ipc.netty.http.client;
 
 import java.util.function.Consumer;
 
@@ -24,13 +24,14 @@ import reactor.ipc.netty.Connection;
 /**
  * @author Stephane Maldini
  */
-final class TcpClientLifecycle extends TcpClientOperator implements Consumer<Connection> {
+final class HttpClientLifecycle extends HttpClientOperator
+		implements Consumer<Connection> {
 
 	final Consumer<? super Bootstrap>  onConnect;
 	final Consumer<? super Connection> onConnected;
 	final Consumer<? super Connection> onDisconnect;
 
-	TcpClientLifecycle(TcpClient client,
+	HttpClientLifecycle(HttpClient client,
 			Consumer<? super Bootstrap> onConnect,
 			Consumer<? super Connection> onConnected,
 			Consumer<? super Connection> onDisconnect) {
@@ -41,7 +42,7 @@ final class TcpClientLifecycle extends TcpClientOperator implements Consumer<Con
 	}
 
 	@Override
-	public Mono<? extends Connection> connect(Bootstrap b) {
+	protected Mono<? extends Connection> connect(Bootstrap b) {
 		Mono<? extends Connection> m = source.connect(b);
 
 		if (onConnect != null) {

@@ -24,43 +24,45 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import reactor.core.Exceptions;
-import reactor.core.publisher.Mono;
-import reactor.ipc.netty.Connection;
-import reactor.ipc.netty.channel.BootstrapHandlers;
 
 /**
  * @author Stephane Maldini
  */
 final class TcpClientSecure extends TcpClientOperator {
 
-	final Consumer<? super SslContextBuilder> configurator;
-	final Duration                            handshakeTimeout;
+	final SslContext sslContext;
+	final Duration   handshakeTimeout;
+
+	TcpClientSecure(TcpClient client, SslContext sslContext,
+			Duration handshakeTimeout) {
+		super(client);
+		this.sslContext = Objects.requireNonNull(sslContext, "sslContext");
+		this.handshakeTimeout = Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
+	}
+
 
 	TcpClientSecure(TcpClient client,
 			Consumer<? super SslContextBuilder> configurator,
 			Duration handshakeTimeout) {
 		super(client);
-		this.configurator = Objects.requireNonNull(configurator, "configurator");
+		Objects.requireNonNull(configurator, "configurator");
 		this.handshakeTimeout = Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
-	}
 
-	@Override
-	protected Bootstrap configure() {
-		Bootstrap b = source.configure();
-
+		SslContextBuilder builder = SslContextBuilder.forClient();
+		SslContext sslContext;
 		try {
-			SslContextBuilder builder = SslContextBuilder.forClient();
 			configurator.accept(builder);
-			return TcpUtils.addOrUpdateSslSupport(b, builder.build(), handshakeTimeout);
+			sslContext = builder.build();
 		}
 		catch (Exception sslException) {
 			throw Exceptions.propagate(sslException);
 		}
+		this.sslContext = sslContext;
 	}
 
 	@Override
-	protected Mono<? extends Connection> connect(Bootstrap b) {
-		return source.connect(b);
+	public Bootstrap configure() {
+		return TcpUtils.updateSslSupport(source.configure(), sslContext, handshakeTimeout);
 	}
 
 	static final SslContext DEFAULT_SSL_CONTEXT;
@@ -75,5 +77,11 @@ final class TcpClientSecure extends TcpClientOperator {
 			sslContext = null;
 		}
 		DEFAULT_SSL_CONTEXT = sslContext;
+	}
+
+
+	@Override
+	public SslContext sslContext(){
+		return sslContext;
 	}
 }

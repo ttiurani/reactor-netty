@@ -48,14 +48,13 @@ import reactor.ipc.netty.resources.LoopResources;
  * is called.
  * <p>
  * <p> Example:
- * <p>
+ * <pre>
  * {@code UdpClient.create()
  * .doOnBind(startMetrics)
  * .doOnBound(startedMetrics)
  * .doOnUnbind(stopMetrics)
  * .host("127.0.0.1")
  * .port(1234)
- * .secure()
  * .send(ByteBufFlux.fromByteArrays(pub))
  * .block() }
  *
@@ -116,7 +115,7 @@ public abstract class UdpClient {
 	 * and returning a new one to be ultimately used for socket binding. <p> Configuration
 	 * will apply during {@link #configure()} phase.
 	 *
-	 * @param bootstrapMapper A bootstrap mapping function to configure and return an
+	 * @param bootstrapMapper A bootstrap mapping function to update configuration and return an
 	 * enriched bootstrap.
 	 *
 	 * @return a new {@link UdpClient}
@@ -131,7 +130,7 @@ public abstract class UdpClient {
 	 * Connection} has been emitted and is not necessary anymore, disposing main server
 	 * loop must be done by the user via {@link Connection#dispose()}.
 	 *
-	 * If configure phase fails, a {@link Mono#error(Throwable)} will be returned;
+	 * If updateConfiguration phase fails, a {@link Mono#error(Throwable)} will be returned;
 	 *
 	 * @return a {@link Mono} of {@link Connection}
 	 */
@@ -308,7 +307,7 @@ public abstract class UdpClient {
 	 * @return a new {@link UdpClient}
 	 */
 	public final UdpClient wiretap() {
-		return bootstrap(b -> BootstrapHandlers.addOrUpdateLogSupport(b, LOGGING_HANDLER));
+		return bootstrap(b -> BootstrapHandlers.updateLogSupport(b, LOGGING_HANDLER));
 	}
 
 	/**
@@ -333,7 +332,7 @@ public abstract class UdpClient {
 	public final UdpClient wiretap(String category, LogLevel level) {
 		Objects.requireNonNull(category, "category");
 		Objects.requireNonNull(level, "level");
-		return bootstrap(b -> BootstrapHandlers.addOrUpdateLogSupport(b,
+		return bootstrap(b -> BootstrapHandlers.updateLogSupport(b,
 				new LoggingHandler(category, level)));
 	}
 
@@ -362,6 +361,11 @@ public abstract class UdpClient {
 			               .option(ChannelOption.SO_RCVBUF, 1024 * 1024)
 			               .option(ChannelOption.SO_SNDBUF, 1024 * 1024)
 			               .remoteAddress(NetUtil.LOCALHOST, DEFAULT_PORT);
+
+	static {
+		BootstrapHandlers.channelOperationFactory(DEFAULT_BOOTSTRAP,
+				(ch, c, msg) -> UdpOperations.bind(ch, c));
+	}
 
 	static final LoggingHandler LOGGING_HANDLER = new LoggingHandler(UdpClient.class);
 

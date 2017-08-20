@@ -14,50 +14,54 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp;
+package reactor.ipc.netty.http.client;
+
+import java.util.Objects;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.EventLoopGroup;
 import io.netty.handler.ssl.JdkSslContext;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
-import reactor.ipc.netty.channel.BootstrapHandlers;
-import reactor.ipc.netty.channel.ChannelOperations;
-import reactor.ipc.netty.channel.ContextHandler;
+import reactor.ipc.netty.http.HttpResources;
 import reactor.ipc.netty.resources.LoopResources;
+import reactor.ipc.netty.tcp.TcpClient;
 
 /**
  * @author Stephane Maldini
  */
-final class TcpClientSingleConnection extends TcpClient {
+final class HttpClientConnection extends HttpClient {
 
-	static final TcpClientSingleConnection INSTANCE = new TcpClientSingleConnection();
+	static final HttpClientConnection INSTANCE = new HttpClientConnection();
+
+	final TcpClient tcpClient;
+
+	HttpClientConnection() {
+		this(DEFAULT_TCP_CLIENT);
+	}
+
+	HttpClientConnection(TcpClient tcpClient) {
+		this.tcpClient = Objects.requireNonNull(tcpClient, "tcpClient");
+	}
 
 	@Override
-	public Mono<? extends Connection> connect(Bootstrap b) {
-		ChannelOperations.OnNew<?> ops = BootstrapHandlers.channelOperationFactory(b);
-
+	protected Mono<? extends Connection> connect(Bootstrap b) {
 		if (b.config()
 		     .group() == null) {
+			LoopResources loops = HttpResources.get();
 
-			LoopResources loops = TcpResources.get();
-
-			boolean useNative =
-					LoopResources.DEFAULT_NATIVE && !(TcpUtils.findSslContext(b) instanceof JdkSslContext);
+			boolean useNative = LoopResources.DEFAULT_NATIVE && !(tcpClient.sslContext() instanceof JdkSslContext);
 
 			EventLoopGroup elg = loops.onClient(useNative);
 
 			b.group(elg)
 			 .channel(loops.onChannel(elg));
 		}
+		return tcpClient.connect(b);
+	}
 
-		return Mono.create(sink -> {
-
-			ContextHandler<?> contextHandler = ContextHandler.newClientContext(sink, ops);
-
-			BootstrapHandlers.updateConfiguration(b, "init", contextHandler);
-
-			contextHandler.setFuture(b.connect());
-		});
+	@Override
+	protected TcpClient configureTcp() {
+		return tcpClient;
 	}
 }

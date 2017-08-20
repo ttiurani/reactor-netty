@@ -54,7 +54,7 @@ import reactor.ipc.netty.resources.PoolResources;
  * is called.
  *
  * <p> Example:
- *
+ * <pre>
  * {@code
  *   TcpClient.create()
  *            .doOnConnect(connectMetrics)
@@ -138,7 +138,7 @@ public abstract class TcpClient {
 	 * <p> Configuration will apply during {@link #configure()} phase.
 	 *
 	 *
-	 * @param bootstrapMapper A bootstrap mapping function to configure and return an
+	 * @param bootstrapMapper A bootstrap mapping function to update configuration and return an
 	 * enriched bootstrap.
 	 *
 	 * @return a new {@link TcpClient}
@@ -148,12 +148,22 @@ public abstract class TcpClient {
 	}
 
 	/**
+	 * Materialize a Bootstrap from the parent {@link TcpClient} chain to use with {@link
+	 * #connect(Bootstrap)} or separately
+	 *
+	 * @return a configured {@link Bootstrap}
+	 */
+	public Bootstrap configure() {
+		return DEFAULT_BOOTSTRAP.clone();
+	}
+
+	/**
 	 * Bind the {@link TcpClient} and return a {@link Mono} of {@link Connection}. If
 	 * {@link Mono} is cancelled, the underlying connection will be aborted. Once the
 	 * {@link Connection} has been emitted and is not necessary anymore, disposing must be
 	 * done by the user via {@link Connection#dispose()}.
 	 *
-	 * If configure phase fails, a {@link Mono#error(Throwable)} will be returned;
+	 * If updateConfiguration phase fails, a {@link Mono#error(Throwable)} will be returned;
 	 *
 	 * @return a {@link Mono} of {@link Connection}
 	 */
@@ -168,6 +178,15 @@ public abstract class TcpClient {
 		}
 		return connect(b);
 	}
+
+	/**
+	 * Bind the {@link TcpClient} and return a {@link Mono} of {@link Connection}
+	 *
+	 * @param b the {@link Bootstrap} to bind
+	 *
+	 * @return a {@link Mono} of {@link Connection}
+	 */
+	public abstract Mono<? extends Connection> connect(Bootstrap b);
 
 	/**
 	 * Setup a callback called when {@link Channel} is about to connect.
@@ -252,6 +271,15 @@ public abstract class TcpClient {
 	}
 
 	/**
+	 * Return true if that {@link TcpClient} secured via SSL transport
+	 *
+	 * @return true if that {@link TcpClient} secured via SSL transport
+	 */
+	public final boolean isSecure(){
+		return sslContext() != null;
+	}
+
+	/**
 	 * Set a {@link ChannelOption} value for low level connection settings like SO_TIMEOUT
 	 * or SO_KEEPALIVE. This will apply to each new channel from remote peer.
 	 *
@@ -287,7 +315,7 @@ public abstract class TcpClient {
 	 *
 	 * @return a new {@link TcpClient}
 	 */
-	public final TcpClient proxy(Consumer<? super ProxyProvider.Builder> proxyOptions) {
+	public final TcpClient proxy(Consumer<? super ProxyProvider.TypeSpec> proxyOptions) {
 		return new TcpClientProxy(this, proxyOptions);
 	}
 
@@ -396,11 +424,18 @@ public abstract class TcpClient {
 	 * @return a new {@link TcpClient}
 	 */
 	public final TcpClient secure(SslContext sslContext, Duration handshakeTimeout) {
-		Objects.requireNonNull(sslContext, "sslContext");
-		Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
-		return bootstrap(b -> TcpUtils.addOrUpdateSslSupport(b,
-				sslContext,
-				handshakeTimeout));
+		return new TcpClientSecure(this, sslContext, handshakeTimeout);
+	}
+
+	/**
+	 * Return the current {@link SslContext} if that {@link TcpClient} secured via SSL
+	 * transport or null
+	 *
+	 * @return he current {@link SslContext} if that {@link TcpClient} secured via SSL
+	 * transport or null
+	 */
+	public SslContext sslContext(){
+		return null;
 	}
 
 	/**
@@ -418,7 +453,7 @@ public abstract class TcpClient {
 	 * @return a new {@link TcpClient}
 	 */
 	public final TcpClient unsecure() {
-		return bootstrap(TcpUtils::removeSslSupport);
+		return new TcpClientUnsecure(this);
 	}
 	/**
 	 * Apply a wire logger configuration using {@link TcpServer} category
@@ -426,7 +461,7 @@ public abstract class TcpClient {
 	 * @return a new {@link TcpServer}
 	 */
 	public final TcpClient wiretap() {
-		return bootstrap(b -> BootstrapHandlers.addOrUpdateLogSupport(b, LOGGING_HANDLER));
+		return bootstrap(b -> BootstrapHandlers.updateLogSupport(b, LOGGING_HANDLER));
 	}
 
 	/**
@@ -451,28 +486,9 @@ public abstract class TcpClient {
 	public final TcpClient wiretap(String category, LogLevel level) {
 		Objects.requireNonNull(category, "category");
 		Objects.requireNonNull(level, "level");
-		return bootstrap(b -> BootstrapHandlers.addOrUpdateLogSupport(b,
+		return bootstrap(b -> BootstrapHandlers.updateLogSupport(b,
 				new LoggingHandler(category, level)));
 	}
-
-	/**
-	 * Materialize a Bootstrap from the parent {@link TcpClient} chain to use with {@link
-	 * #connect(Bootstrap)} or separately
-	 *
-	 * @return a configured {@link Bootstrap}
-	 */
-	protected Bootstrap configure() {
-		return DEFAULT_BOOTSTRAP.clone();
-	}
-
-	/**
-	 * Bind the {@link TcpClient} and return a {@link Mono} of {@link Connection}
-	 *
-	 * @param b the {@link Bootstrap} to bind
-	 *
-	 * @return a {@link Mono} of {@link Connection}
-	 */
-	protected abstract Mono<? extends Connection> connect(Bootstrap b);
 
 	static final Bootstrap DEFAULT_BOOTSTRAP =
 			new Bootstrap().option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 30000)
@@ -480,6 +496,10 @@ public abstract class TcpClient {
 			               .option(ChannelOption.SO_RCVBUF, 1024 * 1024)
 			               .option(ChannelOption.SO_SNDBUF, 1024 * 1024)
 			               .remoteAddress(NetUtil.LOCALHOST, TcpUtils.DEFAULT_PORT);
+
+	static {
+		BootstrapHandlers.channelOperationFactory(DEFAULT_BOOTSTRAP, TcpUtils.TCP_OPS);
+	}
 
 	static final LoggingHandler LOGGING_HANDLER = new LoggingHandler(TcpClient.class);
 }

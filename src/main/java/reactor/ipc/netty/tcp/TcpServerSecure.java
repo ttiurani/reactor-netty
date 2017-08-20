@@ -25,42 +25,47 @@ import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
 import reactor.core.Exceptions;
-import reactor.ipc.netty.channel.BootstrapHandlers;
 
 /**
  * @author Stephane Maldini
  */
 final class TcpServerSecure extends TcpServerOperator {
 
-	final Consumer<? super SslContextBuilder> configurator;
-	final Duration                            handshakeTimeout;
+	final SslContext sslContext;
+	final Duration   handshakeTimeout;
+
+	TcpServerSecure(TcpServer server, SslContext sslContext,
+			Duration handshakeTimeout) {
+		super(server);
+		this.sslContext = Objects.requireNonNull(sslContext, "sslContext");
+		this.handshakeTimeout = Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
+	}
 
 	TcpServerSecure(TcpServer server,
 			Consumer<? super SslContextBuilder> configurator,
 			Duration handshakeTimeout) {
 		super(server);
-		this.configurator = Objects.requireNonNull(configurator, "configurator");
-		this.handshakeTimeout =
-				Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
-	}
-
-	@Override
-	protected ServerBootstrap configure() {
-
-		ServerBootstrap b = source.configure();
-
 		Objects.requireNonNull(configurator, "configurator");
+		this.handshakeTimeout = Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
+		SslContext sslContext;
 		try {
 			SslContextBuilder builder = SslContextBuilder.forServer(
 					DEFAULT_SSL_CONTEXT_SELF.certificate(),
 					DEFAULT_SSL_CONTEXT_SELF.privateKey());
 
 			configurator.accept(builder);
-			return TcpUtils.addOrUpdateSslSupport(b, builder.build(), handshakeTimeout);
+			sslContext = builder.build();
 		}
 		catch (Exception sslException) {
 			throw Exceptions.propagate(sslException);
 		}
+
+		this.sslContext = sslContext;
+	}
+
+	@Override
+	protected ServerBootstrap configure() {
+		return TcpUtils.updateSslSupport(source.configure(), sslContext, handshakeTimeout);
 	}
 
 	static final SelfSignedCertificate DEFAULT_SSL_CONTEXT_SELF;
@@ -83,4 +88,8 @@ final class TcpServerSecure extends TcpServerOperator {
 		DEFAULT_SSL_CONTEXT_SELF = cert;
 	}
 
+	@Override
+	public SslContext sslContext() {
+		return sslContext;
+	}
 }

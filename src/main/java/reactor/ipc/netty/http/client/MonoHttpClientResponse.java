@@ -16,6 +16,8 @@
 
 package reactor.ipc.netty.http.client;
 
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.function.BiFunction;
@@ -39,7 +41,8 @@ import reactor.ipc.netty.channel.AbortedException;
 /**
  * @author Stephane Maldini
  */
-final class MonoHttpClientResponse extends Mono<HttpClientResponse> {
+final class MonoHttpClientResponse extends Mono<HttpClientResponse> implements
+                                                                    HttpClient.PreparedHttpClient {
 
 	final HttpClient                                                     parent;
 	final URI                                                            startURI;
@@ -53,7 +56,7 @@ final class MonoHttpClientResponse extends Mono<HttpClientResponse> {
 			Function<? super HttpClientRequest, ? extends Publisher<Void>> handler) {
 		this.parent = parent;
 		try {
-			this.startURI = new URI(parent.options.formatSchemeAndHost(url,
+			this.startURI = new URI(formatSchemeAndHost(url,
 					method == HttpClient.WS));
 		}
 		catch (URISyntaxException e) {
@@ -72,11 +75,47 @@ final class MonoHttpClientResponse extends Mono<HttpClientResponse> {
 
 		Mono.defer(() -> parent.client.newHandler(new HttpClientHandler(this, bridge),
 				parent.options.getRemoteAddress(bridge.activeURI),
-				HttpClientOptions.isSecure(bridge.activeURI),
+				HttpClientUri.isSecure(bridge.activeURI),
 				bridge))
 		    .retry(bridge)
 		    .cast(HttpClientResponse.class)
 		    .subscribe(subscriber);
+	}
+
+
+
+	String formatSchemeAndHost(String url, boolean ws) {
+		if (!url.startsWith(HttpClient.HTTP_SCHEME) && !url.startsWith(HttpClient.WS_SCHEME)) {
+			StringBuilder schemeBuilder = new StringBuilder();
+			if (ws) {
+				schemeBuilder.append(isSecure() ? HttpClient.WSS_SCHEME : HttpClient.WS_SCHEME);
+			}
+			else {
+				schemeBuilder.append(isSecure() ? HttpClient.HTTPS_SCHEME : HttpClient.HTTP_SCHEME);
+			}
+
+			final String scheme = schemeBuilder.append("://").toString();
+			if (url.startsWith("/")) {
+				//consider relative URL, use the base hostname/port or fallback to localhost
+				SocketAddress remote = getAddress();
+
+				if (remote instanceof InetSocketAddress) {
+					InetSocketAddress inet = (InetSocketAddress) remote;
+
+					return scheme + inet.getHostName() + ":" + inet.getPort() + url;
+				}
+				else {
+					return scheme + "localhost" + url;
+				}
+			}
+			else {
+				//consider absolute URL
+				return scheme + url;
+			}
+		}
+		else {
+			return url;
+		}
 	}
 
 	static final class HttpClientHandler

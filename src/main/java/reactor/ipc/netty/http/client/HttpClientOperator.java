@@ -13,38 +13,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package reactor.ipc.netty.tcp;
+package reactor.ipc.netty.http.client;
 
 import java.util.Objects;
 
-import io.netty.bootstrap.ServerBootstrap;
-import io.netty.handler.ssl.SslContext;
+import io.netty.bootstrap.Bootstrap;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.tcp.TcpClient;
 
 /**
  * @author Stephane Maldini
  */
-abstract class TcpServerOperator extends TcpServer {
+abstract class HttpClientOperator extends HttpClient {
 
-	final TcpServer source;
+	final HttpClient source;
 
-	TcpServerOperator(TcpServer source) {
+	HttpClientOperator(HttpClient source) {
 		this.source = Objects.requireNonNull(source, "source");
 	}
 
 	@Override
-	protected ServerBootstrap configure() {
-		return source.configure();
+	protected TcpClient configureTcp() {
+		return source.configureTcp();
 	}
 
 	@Override
-	protected Mono<? extends Connection> bind(ServerBootstrap b) {
-		return source.bind(b);
-	}
-
-	@Override
-	public SslContext sslContext(){
-		return source.sslContext();
+	protected Mono<? extends Connection> connect(Bootstrap b) {
+		return source.connect(b);
 	}
 }

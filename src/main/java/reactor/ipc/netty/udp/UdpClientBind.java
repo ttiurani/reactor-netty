@@ -22,6 +22,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.channel.BootstrapHandlers;
+import reactor.ipc.netty.channel.ChannelOperations;
 import reactor.ipc.netty.channel.ContextHandler;
 import reactor.ipc.netty.resources.LoopResources;
 
@@ -34,6 +35,8 @@ final class UdpClientBind extends UdpClient {
 
 	@Override
 	protected Mono<? extends Connection> bind(Bootstrap b) {
+		ChannelOperations.OnNew<?> ops = BootstrapHandlers.channelOperationFactory(b);
+
 		//Default group and channel
 		if (b.config()
 		     .group() == null) {
@@ -47,10 +50,9 @@ final class UdpClientBind extends UdpClient {
 
 		return Mono.create(sink -> {
 
-			ContextHandler<?> contextHandler = ContextHandler.newServerContext(sink,
-					(ch, c, msg) -> UdpOperations.bind(ch, c));
+			ContextHandler<?> contextHandler = ContextHandler.newClientContext(sink, ops);
 
-			BootstrapHandlers.configure(b, "init", contextHandler);
+			BootstrapHandlers.updateConfiguration(b, "init", contextHandler);
 
 			contextHandler.setFuture(b.bind());
 		});

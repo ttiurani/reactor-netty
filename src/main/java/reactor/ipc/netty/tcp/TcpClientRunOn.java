@@ -41,10 +41,10 @@ final class TcpClientRunOn extends TcpClientOperator {
 
 	@Override
 	@SuppressWarnings("unchecked")
-	protected Bootstrap configure() {
+	public Bootstrap configure() {
 		Bootstrap b = source.configure();
 
-		boolean useNative = preferNative && !(TcpUtils.findSslContext(b) instanceof JdkSslContext);
+		boolean useNative = preferNative && !(sslContext() instanceof JdkSslContext);
 		EventLoopGroup elg = loopResources.onClient(useNative);
 
 		b.channel(loopResources.onChannel(elg))

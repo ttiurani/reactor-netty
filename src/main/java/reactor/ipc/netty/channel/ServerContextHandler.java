@@ -30,10 +30,10 @@ import reactor.ipc.netty.Connection;
  *
  * @author Stephane Maldini
  */
-final class ServerContextHandler extends CloseableContextHandler<Channel>
+final class ServerContextHandler<CHANNEL extends Channel> extends CloseableContextHandler<CHANNEL>
 		implements Connection {
 
-	ServerContextHandler(ChannelOperations.OnNew<Channel> channelOpFactory,
+	ServerContextHandler(ChannelOperations.OnNew<CHANNEL> channelOpFactory,
 			MonoSink<Connection> sink) {
 		super(channelOpFactory, sink);
 	}

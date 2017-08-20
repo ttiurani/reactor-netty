@@ -25,7 +25,6 @@ import io.netty.channel.Channel;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.pool.ChannelPool;
 import io.netty.handler.ssl.JdkSslContext;
-import io.netty.util.AttributeKey;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.channel.BootstrapHandlers;
@@ -44,9 +43,6 @@ final class TcpClientPooledConnection extends TcpClient {
 
 	static final ChannelOperations.OnNew<Channel> EMPTY = (a, b, c) -> null;
 
-	static final ChannelOperations.OnNew<Channel> CHANNEL_OP_FACTORY =
-			(ch, c, msg) -> ChannelOperations.bind(ch, c);
-
 	final PoolResources poolResources;
 
 	TcpClientPooledConnection(PoolResources poolResources) {
@@ -55,7 +51,9 @@ final class TcpClientPooledConnection extends TcpClient {
 
 	@Override
 	@SuppressWarnings("unchecked")
-	protected Mono<? extends Connection> connect(Bootstrap b) {
+	public Mono<? extends Connection> connect(Bootstrap b) {
+		ChannelOperations.OnNew<?> ops = BootstrapHandlers.channelOperationFactory(b);
+
 		BootstrapConfig bc = b.config();
 
 		//Default group and channel
@@ -79,9 +77,9 @@ final class TcpClientPooledConnection extends TcpClient {
 			ContextHandler<Channel> contextHandler = ContextHandler.newClientContext(sink, EMPTY);
 			ChannelPool pool = poolResources.selectOrCreate(bc.remoteAddress(), b, contextHandler, bc.group());
 
-			BootstrapHandlers.configure(b, "init", contextHandler);
+			BootstrapHandlers.updateConfiguration(b, "init", contextHandler);
 
-			ContextHandler.newClientContext(sink, CHANNEL_OP_FACTORY)
+			ContextHandler.newClientContext(sink, ops)
 			              .setFuture(pool.acquire());
 		});
 	}

@@ -18,6 +18,7 @@ package reactor.ipc.netty.tcp;
 import java.util.Objects;
 
 import io.netty.bootstrap.Bootstrap;
+import io.netty.handler.ssl.SslContext;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
 
@@ -33,12 +34,17 @@ abstract class TcpClientOperator extends TcpClient {
 	}
 
 	@Override
-	protected Bootstrap configure() {
+	public Bootstrap configure() {
 		return source.configure();
 	}
 
 	@Override
-	protected Mono<? extends Connection> connect(Bootstrap b) {
+	public Mono<? extends Connection> connect(Bootstrap b) {
 		return source.connect(b);
+	}
+
+	@Override
+	public SslContext sslContext(){
+		return source.sslContext();
 	}
 }

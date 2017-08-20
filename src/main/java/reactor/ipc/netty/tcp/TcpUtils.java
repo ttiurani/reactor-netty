@@ -26,7 +26,6 @@ import io.netty.bootstrap.AbstractBootstrap;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.logging.LoggingHandler;
@@ -38,6 +37,7 @@ import io.netty.resolver.NoopAddressResolverGroup;
 import io.netty.util.NetUtil;
 import reactor.ipc.netty.NettyPipeline;
 import reactor.ipc.netty.channel.BootstrapHandlers;
+import reactor.ipc.netty.channel.ChannelOperations;
 import reactor.util.Logger;
 import reactor.util.Loggers;
 
@@ -46,8 +46,8 @@ import reactor.util.Loggers;
  */
 final class TcpUtils {
 
-	static Bootstrap addOrReplaceProxySupport(Bootstrap b, ProxyProvider proxyOptions) {
-		BootstrapHandlers.configure(b, NettyPipeline.ProxyHandler, channel -> {
+	static Bootstrap updateProxySupport(Bootstrap b, ProxyProvider proxyOptions) {
+		BootstrapHandlers.updateConfiguration(b, NettyPipeline.ProxyHandler, channel -> {
 			if (proxyOptions.shouldProxy(b.config()
 			                              .remoteAddress())) {
 
@@ -69,22 +69,22 @@ final class TcpUtils {
 		return b;
 	}
 
-	static ServerBootstrap addOrUpdateSslSupport(ServerBootstrap b,
+	static ServerBootstrap updateSslSupport(ServerBootstrap b,
 			SslContext sslContext,
 			Duration sslHandshakeTimeout) {
 
-		BootstrapHandlers.configure(b,
+		BootstrapHandlers.updateConfiguration(b,
 				NettyPipeline.SslHandler,
 				new SslSupportConsumer(sslContext, sslHandshakeTimeout, b));
 
 		return b;
 	}
 
-	static Bootstrap addOrUpdateSslSupport(Bootstrap b,
+	static Bootstrap updateSslSupport(Bootstrap b,
 			SslContext sslContext,
 			Duration sslHandshakeTimeout) {
 
-		BootstrapHandlers.configure(b,
+		BootstrapHandlers.updateConfiguration(b,
 				NettyPipeline.SslHandler,
 				new SslSupportConsumer(sslContext, sslHandshakeTimeout, b));
 
@@ -140,17 +140,17 @@ final class TcpUtils {
 	}
 
 	static Bootstrap removeProxySupport(Bootstrap b) {
-		BootstrapHandlers.remove(b, NettyPipeline.ProxyHandler);
+		BootstrapHandlers.removeConfiguration(b, NettyPipeline.ProxyHandler);
 		return b;
 	}
 
 	static Bootstrap removeSslSupport(Bootstrap b) {
-		BootstrapHandlers.remove(b, NettyPipeline.SslHandler);
+		BootstrapHandlers.removeConfiguration(b, NettyPipeline.SslHandler);
 		return b;
 	}
 
 	static ServerBootstrap removeSslSupport(ServerBootstrap b) {
-		BootstrapHandlers.remove(b, NettyPipeline.SslHandler);
+		BootstrapHandlers.removeConfiguration(b, NettyPipeline.SslHandler);
 		return b;
 	}
 
@@ -278,14 +278,18 @@ final class TcpUtils {
 	static final int                            DEFAULT_PORT =
 			System.getenv("PORT") != null ? Integer.parseInt(System.getenv("PORT")) :
 					12012;
+
+	static final Duration DEFAULT_SSL_HANDSHAKE_TIMEOUT =
+			Duration.ofMillis(Integer.parseInt(System.getProperty(
+					"reactor.ipc.netty.sslHandshakeTimeout",
+					"10000")));
+
 	static final Function<Bootstrap, Bootstrap> REMOVE_PROXY =
 			TcpUtils::removeProxySupport;
 
 	static final Logger                                         log           =
 			Loggers.getLogger(TcpClient.class);
 
-	static final Duration DEFAULT_SSL_HANDSHAKE_TIMEOUT =
-			Duration.ofMillis(Integer.parseInt(System.getProperty(
-					"reactor.ipc.netty.sslHandshakeTimeout",
-					"10000")));
+	static final ChannelOperations.OnNew<?> TCP_OPS = (ch, c, msg) -> ChannelOperations.bind(ch, c);
+
 }

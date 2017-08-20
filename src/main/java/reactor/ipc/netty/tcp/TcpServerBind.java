@@ -35,6 +35,8 @@ final class TcpServerBind extends TcpServer {
 
 	@Override
 	protected Mono<? extends Connection> bind(ServerBootstrap b) {
+		ChannelOperations.OnNew<?> ops = BootstrapHandlers.channelOperationFactory(b);
+
 		if (b.config()
 		     .group() == null) {
 
@@ -52,8 +54,7 @@ final class TcpServerBind extends TcpServer {
 
 		return Mono.create(sink -> {
 
-			ContextHandler<?> contextHandler = ContextHandler.newServerContext(sink,
-					(ch, c, msg) -> ChannelOperations.bind(ch, c));
+			ContextHandler<?> contextHandler = ContextHandler.newServerContext(sink, ops);
 
 			BootstrapHandlers.finalize(b, contextHandler);
 

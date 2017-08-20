@@ -16,445 +16,416 @@
 
 package reactor.ipc.netty.http.client;
 
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelPipeline;
-import io.netty.channel.pool.ChannelPool;
-import io.netty.channel.socket.SocketChannel;
-import io.netty.handler.codec.http.HttpContentDecompressor;
-import io.netty.handler.codec.http.HttpHeaderNames;
-import io.netty.handler.codec.http.HttpHeaderValues;
+import io.netty.channel.EventLoopGroup;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpRequestEncoder;
-import io.netty.handler.codec.http.HttpResponseDecoder;
+import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
-
 import org.reactivestreams.Publisher;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.publisher.MonoSink;
+import reactor.ipc.netty.ByteBufFlux;
+import reactor.ipc.netty.ByteBufMono;
 import reactor.ipc.netty.Connection;
-import reactor.ipc.netty.NettyConnector;
-import reactor.ipc.netty.NettyInbound;
-import reactor.ipc.netty.NettyOutbound;
-import reactor.ipc.netty.NettyPipeline;
-import reactor.ipc.netty.channel.ContextHandler;
+import reactor.ipc.netty.channel.BootstrapHandlers;
+import reactor.ipc.netty.channel.ChannelOperations;
 import reactor.ipc.netty.http.HttpResources;
-import reactor.ipc.netty.http.server.HttpServerResponse;
 import reactor.ipc.netty.http.websocket.WebsocketInbound;
 import reactor.ipc.netty.http.websocket.WebsocketOutbound;
+import reactor.ipc.netty.resources.LoopResources;
+import reactor.ipc.netty.tcp.ProxyProvider;
+import reactor.ipc.netty.tcp.TcpClient;
+import reactor.ipc.netty.tcp.TcpServer;
 
 /**
- * The base class for a Netty-based Http client.
+ * A HttpClient allows to build in a safe immutable way an http client that is
+ * materialized and connecting when {@link #connect(Bootstrap)} is ultimately called.
+ * <p>
+ * <p> Internally, materialization happens in three phases, first {@link #configureTcp()}
+ * is called to retrieve a ready to use {@link TcpClient}, then {@link
+ * TcpClient#configure()} retrieve a usable {@link Bootstrap} for the final {@link
+ * #connect(Bootstrap)} is called.
+ * <p> Examples:
+ * <pre>
+ * {@code
+ * HttpClient.create()
+ * .uri("http://example.com")
+ * .get()
+ * .single()
+ * .block();
+ * }
+ * {@code
+ * HttpClient.create()
+ * .uri("http://example.com")
+ * .body(ByteBufFlux.fromByteArray(flux))
+ * .post()
+ * .single(res -> Mono.just(res.status()))
+ * .block();
+ * }
+ * {@code
+ * HttpClient.create()
+ * .uri("http://example.com")
+ * .body(ByteBufFlux.fromByteArray(flux))
+ * .post()
+ * .single(res -> Mono.just(res.status()))
+ * .block();
+ * }
  *
  * @author Stephane Maldini
- * @author Simon Baslé
- * @author Violeta Georgieva
  */
-public class HttpClient implements NettyConnector<HttpClientResponse, HttpClientRequest> {
+public abstract class HttpClient {
 
-	public static final String USER_AGENT = String.format("ReactorNetty/%s", reactorNettyVersion());
-
+	public static final String USER_AGENT =
+			String.format("ReactorNetty/%s", reactorNettyVersion());
 
 	/**
-	 * Creates a simple HTTP Client with no address to which this client should connect
-	 * and with default sslContext support.
+	 * A ready to consume {@link HttpClient}
+	 */
+	public interface PreparedHttpClient {
+
+		ByteBufFlux content();
+
+		<V> Flux<V> stream(Function<? super HttpClientResponse, ? extends Publisher<? extends V>> receiver);
+
+		<V> Mono<V> single(Function<? super HttpClientResponse, ? extends Mono<? extends V>> receiver);
+	}
+
+	/**
+	 * Prepare a pooled {@link HttpClient}
 	 *
-	 * @return a simple HTTP client
+	 * @return a {@link HttpClient}
 	 */
 	public static HttpClient create() {
-		return create(HttpClientOptions.Builder::sslSupport);
+		return HttpClientConnection.INSTANCE;
 	}
 
 	/**
-	 * Creates a simple HTTP client using provided {@link HttpClientOptions options}
+	 * Prepare a pooled {@link HttpClient}
 	 *
-	 * @param options the options for the client, including the address to which this
-	 * client should connect
-	 * @return a simple HTTP client using provided {@link HttpClientOptions options}
+	 * @return a {@link HttpClient}
 	 */
-	public static HttpClient create(Consumer<? super HttpClientOptions.Builder> options) {
-		return builder().options(options).build();
+	public static HttpClient from(TcpClient tcpClient) {
+		return new HttpClientConnection(tcpClient);
+	}
+
+	public final HttpClient body(Publisher<?> bodyPublisher) {
+
 	}
 
 	/**
-	 * Creates a simple HTTP client bound on the provided address and port 80
+	 * HTTP DELETE to connect the {@link HttpClient}.
 	 *
-	 * @param address the host to which this client should connect.
-	 * @return a simple HTTP client bound on the provided address and port 80
+	 * @return a {@link PreparedHttpClient} ready to consume for response
 	 */
-	public static HttpClient create(String address) {
-		return create(address, 80);
+	public final PreparedHttpClient delete() {
+		return request(HttpMethod.DELETE);
 	}
 
 	/**
-	 * Creates a simple HTTP client bound on the provided address and port
+	 * Setup a callback called when {@link Channel} is about to connect.
 	 *
-	 * @param address the host to which this client should connect.
-	 * @param port the port to which this client should connect.
-	 * @return a simple HTTP client bound on the provided address and port
-	 */
-	public static HttpClient create(String address, int port) {
-		return create(opts -> opts.connectAddress(() -> InetSocketAddress.createUnresolved(address, port)));
-	}
-
-	/**
-	 * Creates a simple HTTP client bound on localhost and the provided port
+	 * @param doOnConnect a runnable observing connected events
 	 *
-	 * @param port the port to which this client should connect.
-	 * @return a simple HTTP client bound on localhost and the provided port
+	 * @return a new {@link HttpClient}
 	 */
-	public static HttpClient create(int port) {
-		return create("localhost", port);
+	public final HttpClient doOnConnect(Consumer<? super Bootstrap> doOnConnect) {
+		Objects.requireNonNull(doOnConnect, "doOnConnect");
+		return new HttpClientLifecycle(this, doOnConnect, null, null);
 	}
 
 	/**
-	 * Creates a builder for {@link HttpClient HttpClient}
+	 * Setup a callback called after {@link Channel} has been connected.
 	 *
-	 * @return a new HttpClient builder
-	 */
-	public static HttpClient.Builder builder() {
-		return new HttpClient.Builder();
-	}
-
-	final TcpBridgeClient client;
-	final HttpClientOptions options;
-
-	private HttpClient(HttpClient.Builder builder) {
-		HttpClientOptions.Builder clientOptionsBuilder = HttpClientOptions.builder();
-		clientOptionsBuilder.loopResources(HttpResources.get())
-		                    .poolResources(HttpResources.get());
-		if (Objects.nonNull(builder.options)) {
-			builder.options.accept(clientOptionsBuilder);
-		}
-		this.options = clientOptionsBuilder.build();
-		this.client = new TcpBridgeClient(options);
-	}
-
-	/**
-	 * HTTP DELETE the passed URL. When connection has been established, the passed handler is
-	 * invoked and can be used to tune the request and write data to it.
+	 * @param doOnConnected a consumer observing connected events
 	 *
-	 * @param url the target remote URL
-	 * @param handler the {@link Function} to invoke on open channel
-	 * @return a {@link Mono} of the {@link HttpServerResponse} ready to consume for
-	 * response
+	 * @return a new {@link HttpClient}
 	 */
-	public final Mono<HttpClientResponse> delete(String url,
-			Function<? super HttpClientRequest, ? extends Publisher<Void>> handler) {
-		return request(HttpMethod.DELETE, url, handler);
+	public final HttpClient doOnConnected(Consumer<? super Connection> doOnConnected) {
+		Objects.requireNonNull(doOnConnected, "doOnConnected");
+		return new HttpClientLifecycle(this, null, doOnConnected, null);
 	}
 
 	/**
-	 * HTTP DELETE the passed URL.
+	 * Setup a callback called after {@link Channel} has been disconnected.
 	 *
-	 * @param url the target remote URL
-	 * @return a {@link Mono} of the {@link HttpServerResponse} ready to consume for
-	 * response
-	 */
-	public final Mono<HttpClientResponse> delete(String url) {
-		return request(HttpMethod.DELETE, url, null);
-	}
-
-	/**
-	 * HTTP GET the passed URL. When connection has been made, the passed handler is
-	 * invoked and can be used to tune the request and write data to it.
+	 * @param doOnDisconnect a consumer observing disconnected events
 	 *
-	 * @param url the target remote URL
-	 * @param handler the {@link Function} to invoke on open channel
-	 * @return a {@link Mono} of the {@link HttpServerResponse} ready to consume for
-	 * response
+	 * @return a new {@link HttpClient}
 	 */
-	public final Mono<HttpClientResponse> get(String url,
-			Function<? super HttpClientRequest, ? extends Publisher<Void>> handler) {
-		return request(HttpMethod.GET, url, handler);
+	public final HttpClient doOnDisconnect(Consumer<? super Connection> doOnDisconnect) {
+		Objects.requireNonNull(doOnDisconnect, "doOnDisconnect");
+		return new HttpClientLifecycle(this, null, null, doOnDisconnect);
 	}
 
 	/**
-	 * HTTP GET the passed URL.
+	 * Setup all lifecycle callbacks called  on or after {@link Channel} has been
+	 * connected and after it has been disconnected.
 	 *
-	 * @param url the target remote URL
-	 * @return a {@link Mono} of the {@link HttpServerResponse} ready to consume for
-	 * response
-	 */
-	public final Mono<HttpClientResponse> get(String url) {
-		return request(HttpMethod.GET, url, null);
-	}
-
-	@Override
-	@SuppressWarnings("unchecked")
-	public Mono<HttpClientResponse> newHandler(BiFunction<? super HttpClientResponse, ? super HttpClientRequest, ? extends Publisher<Void>> ioHandler) {
-		return (Mono<HttpClientResponse>) client.newHandler((BiFunction<NettyInbound, NettyOutbound, Publisher<Void>>) ioHandler);
-	}
-
-	/**
-	 * HTTP PATCH the passed URL. When connection has been made, the passed handler is
-	 * invoked and can be used to tune the request and write data to it.
+	 * @param doOnConnect a consumer observing connect events
+	 * @param doOnConnected a consumer observing connected events
+	 * @param doOnDisconnect a consumer observing disconnected events
 	 *
-	 * @param url the target remote URL
-	 * @param handler the {@link Function} to invoke on open channel
-	 * @return a {@link Mono} of the {@link HttpServerResponse} ready to consume for
-	 * response
+	 * @return a new {@link HttpClient}
 	 */
-	public final Mono<HttpClientResponse> patch(String url,
-			Function<? super HttpClientRequest, ? extends Publisher<Void>> handler) {
-		return request(HttpMethod.PATCH, url, handler);
+	public final HttpClient doOnLifecycle(Consumer<? super Bootstrap> doOnConnect,
+			Consumer<? super Connection> doOnConnected,
+			Consumer<? super Connection> doOnDisconnect) {
+		Objects.requireNonNull(doOnConnect, "doOnConnected");
+		Objects.requireNonNull(doOnConnected, "doOnConnected");
+		Objects.requireNonNull(doOnDisconnect, "doOnDisconnect");
+		return new HttpClientLifecycle(this, doOnConnect, doOnConnected, doOnDisconnect);
 	}
 
 	/**
-	 * HTTP PATCH the passed URL.
+	 * HTTP GET to connect the {@link HttpClient}.
 	 *
-	 * @param url the target remote URL
-	 * @return a {@link Mono} of the {@link HttpServerResponse} ready to consume for
-	 * response
+	 * @return a {@link PreparedHttpClient} ready to consume for response
 	 */
-	public final Mono<HttpClientResponse> patch(String url) {
-		return request(HttpMethod.PATCH, url, null);
+	public final PreparedHttpClient get() {
+		return request(HttpMethod.GET);
 	}
 
 	/**
-	 * HTTP POST the passed URL. When connection has been made, the passed handler is
-	 * invoked and can be used to tune the request and write data to it.
+	 * Attach an IO handler to react on connected client
 	 *
-	 * @param url the target remote URL
-	 * @param handler the {@link Function} to invoke on open channel
-	 * @return a {@link Mono} of the {@link HttpServerResponse} ready to consume for
-	 * response
-	 */
-	public final Mono<HttpClientResponse> post(String url,
-			Function<? super HttpClientRequest, ? extends Publisher<Void>> handler) {
-		return request(HttpMethod.POST, url, handler);
-	}
-
-	/**
-	 * HTTP PUT the passed URL. When connection has been made, the passed handler is
-	 * invoked and can be used to tune the request and write data to it.
+	 * @param handler an IO handler that can dispose underlying connection when {@link
+	 * Publisher} terminates.
 	 *
-	 * @param url the target remote URL
-	 * @param handler the {@link Function} to invoke on open channel
-	 * @return a {@link Mono} of the {@link HttpServerResponse} ready to consume for
-	 * response
+	 * @return a new {@link HttpClient}
 	 */
-	public final Mono<HttpClientResponse> put(String url,
-			Function<? super HttpClientRequest, ? extends Publisher<Void>> handler) {
-		return request(HttpMethod.PUT, url, handler);
+	public final HttpClient handler(BiFunction<? super HttpClientResponse, ? super HttpClientRequest, ? extends Publisher<Void>> handler) {
+		Objects.requireNonNull(handler, "handler");
+		return doOnConnected(c -> Mono.fromDirect(handler.apply((HttpClientResponse) c,
+				(HttpClientRequest) c))
+		                              .subscribe(c.disposeSubscriber()));
 	}
 
 	/**
-	 * Use the passed HTTP method to send to the given URL. When connection has been made,
-	 * the passed handler is invoked and can be used to tune the request and
-	 * write data to it.
+	 * Apply headers configuration.
+	 *
+	 * @param headerBuilder the  header {@link Consumer} to invoke before sending
+	 * websocket handshake
+	 *
+	 * @return a new {@link HttpClient}
+	 */
+	public final HttpClient headers(Consumer<? super HttpHeaders> headerBuilder) {
+		return new HttpClientHeaders(this, headerBuilder);
+	}
+
+	/**
+	 * Apply an http proxy configuration. Use {@link #tcpConfiguration(Function)} to
+	 * access more proxy types including SOCKS4 and SOCKS5.
+	 *
+	 * @param proxyOptions the http proxy configuration callback
+	 *
+	 * @return a new {@link HttpClient}
+	 */
+	public final HttpClient httpProxy(Consumer<? super ProxyProvider.AddressSpec> proxyOptions) {
+		return tcpConfiguration(tcp -> tcp.proxy(p -> proxyOptions.accept(p.type(
+				ProxyProvider.Proxy.HTTP))));
+	}
+
+	/**
+	 * HTTP OPTIONS to connect the {@link HttpClient}.
+	 *
+	 * @return a {@link PreparedHttpClient} ready to consume for response
+	 */
+	public final PreparedHttpClient options() {
+		return request(HttpMethod.OPTIONS);
+	}
+
+	/**
+	 * HTTP PATCH to connect the {@link HttpClient}.
+	 *
+	 * @return a {@link PreparedHttpClient} ready to consume for response
+	 */
+	public final PreparedHttpClient patch() {
+		return request(HttpMethod.PATCH);
+	}
+
+	/**
+	 * HTTP POST to connect the {@link HttpClient}.
+	 *
+	 * @return a {@link PreparedHttpClient} ready to consume for response
+	 */
+	public final PreparedHttpClient post() {
+		return request(HttpMethod.POST);
+	}
+
+	/**
+	 * HTTP PUT to connect the {@link HttpClient}.
+	 *
+	 * @return a {@link PreparedHttpClient} ready to consume for response
+	 */
+	public final PreparedHttpClient put() {
+		return request(HttpMethod.PUT);
+	}
+
+	/**
+	 * Use the passed HTTP method to connect the {@link HttpClient}.
 	 *
 	 * @param method the HTTP method to send
-	 * @param url the target remote URL
-	 * @param handler the {@link Function} to invoke on opened TCP connection
-	 * @return a {@link Mono} of the {@link HttpServerResponse} ready to consume for
-	 * response
+	 *
+	 * @return a {@link PreparedHttpClient} ready to consume for response
 	 */
-	public Mono<HttpClientResponse> request(HttpMethod method,
-			String url,
-			Function<? super HttpClientRequest, ? extends Publisher<Void>> handler) {
-
-		if (method == null || url == null) {
-			throw new IllegalArgumentException("Method && url cannot be both null");
-		}
-
-		return new MonoHttpClientResponse(this, url, method, handler(handler, options));
+	public PreparedHttpClient request(HttpMethod method) {
+		return new MonoHttpClientResponse(this, method);
 	}
 
 	/**
-	 * WebSocket to the passed URL.
+	 * Apply {@link Bootstrap} configuration given mapper taking currently configured one
+	 * and returning a new one to be ultimately used for socket binding. <p> Configuration
+	 * will apply during {@link #configureTcp()} phase.
 	 *
-	 * @param url the target remote URL
-	 * @return a {@link Mono} of the {@link HttpServerResponse} ready to consume for
-	 * response
+	 * @param tcpMapper A tcpClient mapping function to update tcp configuration and
+	 * return an enriched tcp client to use.
+	 *
+	 * @return a new {@link HttpClient}
 	 */
-	public final Mono<HttpClientResponse> ws(String url) {
-		return request(WS, url, HttpClientRequest::sendWebsocket);
+	public final HttpClient tcpConfiguration(Function<? super TcpClient, ? extends TcpClient> tcpMapper) {
+		return new HttpClientTcpConfig(this, tcpMapper);
 	}
 
 	/**
-	 * WebSocket to the passed URL.
+	 * Run IO loops on a supplied {@link EventLoopGroup} from the {@link LoopResources}
+	 * container. Will prefer native (epoll) implementation if available unless the
+	 * environment property {@literal reactor.ipc.netty.epoll} is set to {@literal
+	 * false}.
+	 * <p>
+	 * <p>
+	 * <p>
+	 * /** Remove any previously applied SSL configuration customization
 	 *
-	 * @param url the target remote URL
-	 * @param headerBuilder the  header {@link Consumer} to invoke before sending websocket
-	 * handshake
-	 * @return a {@link Mono} of the {@link HttpServerResponse} ready to consume for
-	 * response
+	 * @return a new {@link HttpClient}
 	 */
-	public final Mono<HttpClientResponse> ws(String url,
-			final Consumer<? super HttpHeaders> headerBuilder) {
-		return request(WS,
-				url, ch -> {
-					headerBuilder.accept(ch.requestHeaders());
-					return ch.sendWebsocket();
-				});
+	public final HttpClient unproxy() {
+		return tcpConfiguration(TcpClient::unproxy);
 	}
+
+	/**
+	 * @param baseUri
+	 *
+	 * @return
+	 */
+	public final HttpClient uri(String baseUri) {
+		return new HttpClientUri(this, baseUri);
+	}
+
+	/**
+	 * Apply a wire logger configuration using {@link TcpServer} category
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	public final HttpClient wiretap() {
+		return tcpConfiguration(tcp -> tcp.bootstrap(b -> BootstrapHandlers.updateLogSupport(
+				b,
+				LOGGING_HANDLER)));
+	}
+
+	/**
+	 * Apply a wire logger configuration
+	 *
+	 * @param category the logger category
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	public final HttpClient wiretap(String category) {
+		return wiretap(category, LogLevel.DEBUG);
+	}
+
+	/**
+	 * Apply a wire logger configuration
+	 *
+	 * @param category the logger category
+	 * @param level the logger level
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	public final HttpClient wiretap(String category, LogLevel level) {
+		Objects.requireNonNull(category, "category");
+		Objects.requireNonNull(level, "level");
+		return tcpConfiguration(tcp -> tcp.bootstrap(b -> BootstrapHandlers.updateLogSupport(
+				b,
+				new LoggingHandler(category, level))));
+	}
+
+	/**
+	 * WebSocket to connect the {@link HttpClient}.
+	 *
+	 * @return a {@link PreparedHttpClient} ready to consume for response
+	 */
+	public final PreparedHttpClient ws() {
+		return request(WS, HttpClientRequest::sendWebsocket);
+	}
+
 	/**
 	 * WebSocket to the passed URL, negotiating one of the passed subprotocols.
 	 * <p>
 	 * The negotiated subprotocol can be accessed through the {@link HttpClientResponse}
-	 * by switching to websocket (using any of the {@link HttpClientResponse#receiveWebsocket() receiveWebSocket}
-	 * methods) and using {@link WebsocketInbound#selectedSubprotocol()}.
+	 * by switching to websocket (using any of the {@link HttpClientResponse#receiveWebsocket()
+	 * receiveWebSocket} methods) and using {@link WebsocketInbound#selectedSubprotocol()}.
 	 * <p>
 	 * To send data through the websocket, use {@link HttpClientResponse#receiveWebsocket(BiFunction)}
 	 * and then use the function's {@link WebsocketOutbound}.
 	 *
-	 * @param url the target remote URL
-	 * @param subprotocols the subprotocol(s) to negotiate, comma-separated, or null if not relevant.
-	 * @return a {@link Mono} of the {@link HttpServerResponse} ready to consume for
-	 * response
+	 * @param subprotocols the subprotocol(s) to negotiate, comma-separated, or null if
+	 * not relevant.
+	 *
+	 * @return a {@link PreparedHttpClient} ready to consume for response
 	 */
-	public final Mono<HttpClientResponse> ws(String url, String subprotocols) {
-		return request(WS, url, req -> req.sendWebsocket(subprotocols));
+	public final PreparedHttpClient ws(String subprotocols) {
+		return request(WS, req -> req.sendWebsocket(subprotocols));
 	}
 
 	/**
-	 * WebSocket to the passed URL, negotiating one of the passed subprotocols.
-	 * <p>
-	 * The negotiated subprotocol can be accessed through the {@link HttpClientResponse}
-	 * by switching to websocket (using any of the {@link HttpClientResponse#receiveWebsocket() receiveWebSocket}
-	 * methods) and using {@link WebsocketInbound#selectedSubprotocol()}.
-	 * <p>
-	 * To send data through the websocket, use {@link HttpClientResponse#receiveWebsocket(BiFunction)}
-	 * and then use the function's {@link WebsocketOutbound}.
+	 * Materialize a TcpClient from the parent {@link HttpClient} chain to use with {@link
+	 * #connect(Bootstrap)} or separately
 	 *
-	 * @param url the target remote URL
-	 * @param headerBuilder the  header {@link Consumer} to invoke before sending websocket
-	 * handshake
-	 * @param subprotocols the subprotocol(s) to negotiate, comma-separated, or null if not relevant.
-	 * @return a {@link Mono} of the {@link HttpServerResponse} ready to consume for
-	 * response
+	 * @return a configured {@link TcpClient}
 	 */
-	public final Mono<HttpClientResponse> ws(String url,
-			final Consumer<? super HttpHeaders> headerBuilder, String subprotocols) {
-		return request(WS,
-				url, ch -> {
-					headerBuilder.accept(ch.requestHeaders());
-					return ch.sendWebsocket(subprotocols);
-				});
+	protected TcpClient configureTcp() {
+		return DEFAULT_TCP_CLIENT;
 	}
 
 	/**
-	 * Get a copy of the {@link HttpClientOptions} currently in effect.
+	 * Bind the {@link HttpClient} and return a {@link Mono} of {@link Connection}
 	 *
-	 * @return the http client options
+	 * @param b the {@link Bootstrap} to bind
+	 *
+	 * @return a {@link Mono} of {@link Connection}
 	 */
-	public HttpClientOptions options() {
-		return options.duplicate();
-	}
+	protected abstract Mono<? extends Connection> connect(Bootstrap b);
 
-	@Override
-	public String toString() {
-		return "HttpClient: " + options.asSimpleString();
-	}
+	static final LoggingHandler LOGGING_HANDLER = new LoggingHandler(HttpClient.class);
 
-	static final HttpMethod     WS             = new HttpMethod("WS");
-	final static String         WS_SCHEME      = "ws";
-	final static String         WSS_SCHEME     = "wss";
-	final static String         HTTP_SCHEME    = "http";
-	final static String         HTTPS_SCHEME   = "https";
-	final static LoggingHandler loggingHandler = new LoggingHandler(HttpClient.class);
+	final static HttpMethod     WS              = new HttpMethod("WS");
+	final static String         WS_SCHEME       = "ws";
+	final static String         WSS_SCHEME      = "wss";
+	final static String         HTTP_SCHEME     = "http";
+	final static String         HTTPS_SCHEME    = "https";
+	static final ChannelOperations.OnNew<?> HTTP_OPS =
+			(ch, c, msg) -> HttpClientOperations.bindHttp(ch, c);
 
-	@SuppressWarnings("unchecked")
-	final class TcpBridgeClient extends TcpClient implements
-	                                              BiConsumer<ChannelPipeline, ContextHandler<Channel>> {
+	static final Function<Bootstrap, Bootstrap> HTTP_OPS_CONF = b -> {
+		BootstrapHandlers.channelOperationFactory(b, HTTP_OPS);
+		return b;
+	};
 
-		TcpBridgeClient(ClientOptions options) {
-			super(options);
-		}
-
-		@Override
-		protected Mono<Connection> newHandler(BiFunction<? super NettyInbound, ? super NettyOutbound, ? extends Publisher<Void>> handler,
-				InetSocketAddress address,
-				boolean secure,
-				Consumer<? super Channel> onSetup) {
-			return super.newHandler(handler, address, secure, onSetup);
-		}
-
-		@Override
-		protected ContextHandler<SocketChannel> doHandler(BiFunction<? super NettyInbound, ? super NettyOutbound, ? extends Publisher<Void>> handler,
-				MonoSink<Connection> sink,
-				boolean secure,
-				SocketAddress providedAddress,
-				ChannelPool pool,
-				Consumer<? super Channel> onSetup) {
-			return ContextHandler.<SocketChannel>newClientContext(sink,
-					options,
-					loggingHandler,
-					secure,
-					providedAddress,
-					pool,
-					handler != null ? (ch, c, msg) -> {
-						if(onSetup != null){
-							onSetup.accept(ch);
-						}
-						return HttpClientOperations.bindHttp(ch, handler, c);
-					} : EMPTY).onPipeline(this);
-		}
-
-		@Override
-		public void accept(ChannelPipeline pipeline, ContextHandler<Channel> c) {
-			pipeline.addLast(NettyPipeline.HttpDecoder, new HttpResponseDecoder())
-			        .addLast(NettyPipeline.HttpEncoder, new HttpRequestEncoder());
-			if (options.acceptGzip()) {
-				pipeline.addAfter(NettyPipeline.HttpDecoder,
-						NettyPipeline.HttpDecompressor,
-						new HttpContentDecompressor());
-			}
-		}
-	}
+	static final TcpClient DEFAULT_TCP_CLIENT = TcpClient.create(HttpResources.get())
+	                                                     .bootstrap(HTTP_OPS_CONF)
+	                                                     .secure();
 
 	static String reactorNettyVersion() {
-		return Optional.ofNullable(HttpClient.class.getPackage().getImplementationVersion())
+		return Optional.ofNullable(HttpClient.class.getPackage()
+		                                           .getImplementationVersion())
 		               .orElse("dev");
-	}
-
-	static Function<? super HttpClientRequest, ? extends Publisher<Void>> handler(Function<? super HttpClientRequest, ? extends Publisher<Void>> h,
-			HttpClientOptions opts) {
-		if (opts.acceptGzip()) {
-			if (h != null) {
-				return req -> h.apply(req.header(HttpHeaderNames.ACCEPT_ENCODING,
-						HttpHeaderValues.GZIP));
-			}
-			else {
-				return req -> req.header(HttpHeaderNames.ACCEPT_ENCODING,
-						HttpHeaderValues.GZIP);
-			}
-		}
-		else {
-			return h;
-		}
-	}
-
-	public static final class Builder {
-		private Consumer<? super HttpClientOptions.Builder> options;
-
-		private Builder() {
-		}
-
-
-		/**
-		 * The options for the client, including address and port.
-		 *
-		 * @param options the options for the client, including address and port.
-		 * @return {@code this}
-		 */
-		public final Builder options(Consumer<? super HttpClientOptions.Builder> options) {
-			this.options = Objects.requireNonNull(options, "options");
-			return this;
-		}
-
-		public HttpClient build() {
-			return new HttpClient(this);
-		}
 	}
 }

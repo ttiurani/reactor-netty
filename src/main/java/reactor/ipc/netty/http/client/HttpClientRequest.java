@@ -140,7 +140,7 @@ public interface HttpClientRequest extends NettyOutbound, HttpInfos {
 	boolean isFollowRedirect();
 
 	/**
-	 * set the request keepAlive if true otherwise remove the existing connection keep alive header
+	 * set the request keepAlive if true otherwise removeConfiguration the existing connection keep alive header
 	 *
 	 * @return this outbound
 	 */

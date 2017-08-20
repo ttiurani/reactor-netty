@@ -32,18 +32,23 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPipeline;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
 import io.netty.handler.codec.http.DefaultHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpConstants;
+import io.netty.handler.codec.http.HttpContentDecompressor;
 import io.netty.handler.codec.http.HttpHeaderNames;
+import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpMessage;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpRequest;
+import io.netty.handler.codec.http.HttpRequestEncoder;
 import io.netty.handler.codec.http.HttpResponse;
+import io.netty.handler.codec.http.HttpResponseDecoder;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
@@ -84,8 +89,27 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 		implements HttpClientResponse, HttpClientRequest {
 
 	static HttpOperations bindHttp(Channel channel, ContextHandler<?> context) {
-		return new HttpClientOperations(channel, context);
+		ChannelPipeline pipeline = channel.pipeline();
+
+		pipeline.addLast(NettyPipeline.HttpDecoder, new HttpResponseDecoder())
+		        .addLast(NettyPipeline.HttpEncoder, new HttpRequestEncoder());
+
+		HttpClientOperations ops = new HttpClientOperations(channel, context);
+
+		if (channel.attr(ACCEPT_GZIP)
+		           .get()) {
+			pipeline.addAfter(NettyPipeline.HttpDecoder,
+					NettyPipeline.HttpDecompressor,
+					new HttpContentDecompressor());
+			ops.requestHeaders()
+			   .set(HttpHeaderNames.ACCEPT_ENCODING, HttpHeaderValues.GZIP);
+		}
+
+		return ops;
 	}
+
+	static final AttributeKey<Boolean> ACCEPT_GZIP =
+			AttributeKey.newInstance("acceptGzip");
 
 	final String[]    redirectedFrom;
 	final boolean     isSecure;

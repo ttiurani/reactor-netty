@@ -20,16 +20,19 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
+import io.netty.bootstrap.AbstractBootstrap;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
 import io.netty.handler.logging.LoggingHandler;
 import reactor.core.Exceptions;
 import reactor.ipc.netty.NettyPipeline;
@@ -37,74 +40,13 @@ import reactor.util.Logger;
 import reactor.util.Loggers;
 
 /**
- * Helper to configure the main {@link Bootstrap} and
+ * Helper to update configuration the main {@link Bootstrap} and
  * {@link ServerBootstrap} handlers
  *
  * @author Stephane Maldini
  */
 @SuppressWarnings("raw")
 public abstract class BootstrapHandlers {
-
-	/**
-	 * Configure log support for a {@link ServerBootstrap}
-	 *
-	 * @param b the bootstrap to setup
-	 * @param handler the logging handler to setup
-	 *
-	 * @return a mutated {@link ServerBootstrap#childHandler}
-	 */
-	public static ServerBootstrap addOrUpdateLogSupport(ServerBootstrap b,
-			LoggingHandler handler) {
-		configure(b, NettyPipeline.LoggingHandler, logConfiguration(handler));
-		return b;
-	}
-
-	/**
-	 * Configure log support for a {@link Bootstrap}
-	 *
-	 * @param b the bootstrap to setup
-	 * @param handler the logging handler to setup
-	 *
-	 * @return a mutated {@link ServerBootstrap#handler}
-	 */
-	public static Bootstrap addOrUpdateLogSupport(Bootstrap b, LoggingHandler handler) {
-		configure(b, NettyPipeline.LoggingHandler, logConfiguration(handler));
-		return b;
-	}
-
-	/**
-	 * Add the configuration consumer to this {@link Bootstrap} given a unique
-	 * configuration name. Configuration will be run on channel init.
-	 *
-	 * @param b a bootstrap
-	 * @param name a configuration name
-	 * @param c a configuration consumer
-	 */
-	public static void configure(Bootstrap b, String name, Consumer<? super Channel> c) {
-		Objects.requireNonNull(b, "bootstrap");
-		Objects.requireNonNull(name, "name");
-		Objects.requireNonNull(c, "configuration");
-		b.handler(addPipeline(b.config()
-		                       .handler(), name, c));
-	}
-
-	/**
-	 * Add the configuration consumer to this {@link ServerBootstrap} given a unique
-	 * configuration name. Configuration will be run on child channel init.
-	 *
-	 * @param b a server bootstrap
-	 * @param name a configuration name
-	 * @param c a configuration consumer
-	 */
-	public static void configure(ServerBootstrap b,
-			String name,
-			Consumer<? super Channel> c) {
-		Objects.requireNonNull(b, "bootstrap");
-		Objects.requireNonNull(name, "name");
-		Objects.requireNonNull(c, "configuration");
-		b.childHandler(addPipeline(b.config()
-		                            .childHandler(), name, c));
-	}
 
 	/**
 	 * Finalize a server bootstrap pipeline configuration by turning it into a
@@ -157,11 +99,11 @@ public abstract class BootstrapHandlers {
 	 * @param b a server bootstrap
 	 * @param name a configuration name
 	 */
-	public static void remove(ServerBootstrap b, String name) {
+	public static void removeConfiguration(ServerBootstrap b, String name) {
 		Objects.requireNonNull(b, "bootstrap");
 		Objects.requireNonNull(name, "name");
-		b.childHandler(remove(b.config()
-		                       .childHandler(), name));
+		b.childHandler(removeConfiguration(b.config()
+		                                    .childHandler(), name));
 	}
 
 	/**
@@ -171,14 +113,107 @@ public abstract class BootstrapHandlers {
 	 * @param b a bootstrap
 	 * @param name a configuration name
 	 */
-	public static void remove(Bootstrap b, String name) {
+	public static void removeConfiguration(Bootstrap b, String name) {
 		Objects.requireNonNull(b, "bootstrap");
 		Objects.requireNonNull(name, "name");
-		b.handler(remove(b.config()
-		                  .handler(), name));
+		b.handler(removeConfiguration(b.config()
+		                               .handler(), name));
 	}
 
-	static ChannelHandler remove(ChannelHandler handler, String name) {
+	/**
+	 * Set a {@link ChannelOperations.OnNew} to the passed bootstrap.
+	 *
+	 * @param b the bootstrap to scan
+	 * @param opsFactory a new {@link ChannelOperations.OnNew} factory
+	 */
+	public static void channelOperationFactory(AbstractBootstrap<?, ?> b,
+			ChannelOperations.OnNew<?> opsFactory) {
+		Objects.requireNonNull(b, "bootstrap");
+		Objects.requireNonNull(opsFactory, "opsFactory");
+		b.option(OPS_OPTION, opsFactory);
+	}
+
+	/**
+	 * Obtain and remove the current {@link ChannelOperations.OnNew} from the bootstrap.
+	 *
+	 * @param b the bootstrap to scan
+	 *
+	 * @return current {@link ChannelOperations.OnNew} factory or null
+	 */
+	@SuppressWarnings("unchecked")
+	public static ChannelOperations.OnNew<?> channelOperationFactory(AbstractBootstrap<?, ?> b) {
+		Objects.requireNonNull(b, "bootstrap");
+		ChannelOperations.OnNew<?> ops = (ChannelOperations.OnNew<?>) b.config()
+		                                     .options()
+		                                     .get(OPS_OPTION);
+		b.option(OPS_OPTION, null);
+		return ops;
+	}
+
+	/**
+	 * Add the configuration consumer to this {@link Bootstrap} given a unique
+	 * configuration name. Configuration will be run on channel init.
+	 *
+	 * @param b a bootstrap
+	 * @param name a configuration name
+	 * @param c a configuration consumer
+	 */
+	public static void updateConfiguration(Bootstrap b,
+			String name,
+			Consumer<? super Channel> c) {
+		Objects.requireNonNull(b, "bootstrap");
+		Objects.requireNonNull(name, "name");
+		Objects.requireNonNull(c, "configuration");
+		b.handler(updateConfiguration(b.config()
+		                               .handler(), name, c));
+	}
+
+	/**
+	 * Add the configuration consumer to this {@link ServerBootstrap} given a unique
+	 * configuration name. Configuration will be run on child channel init.
+	 *
+	 * @param b a server bootstrap
+	 * @param name a configuration name
+	 * @param c a configuration consumer
+	 */
+	public static void updateConfiguration(ServerBootstrap b,
+			String name,
+			Consumer<? super Channel> c) {
+		Objects.requireNonNull(b, "bootstrap");
+		Objects.requireNonNull(name, "name");
+		Objects.requireNonNull(c, "configuration");
+		b.childHandler(updateConfiguration(b.config()
+		                                    .childHandler(), name, c));
+	}
+
+	/**
+	 * Configure log support for a {@link Bootstrap}
+	 *
+	 * @param b the bootstrap to setup
+	 * @param handler the logging handler to setup
+	 *
+	 * @return a mutated {@link ServerBootstrap#handler}
+	 */
+	public static Bootstrap updateLogSupport(Bootstrap b, LoggingHandler handler) {
+		updateConfiguration(b, NettyPipeline.LoggingHandler, logConfiguration(handler));
+		return b;
+	}
+
+	/**
+	 * Configure log support for a {@link ServerBootstrap}
+	 *
+	 * @param b the bootstrap to setup
+	 * @param handler the logging handler to setup
+	 *
+	 * @return a mutated {@link ServerBootstrap#childHandler}
+	 */
+	public static ServerBootstrap updateLogSupport(ServerBootstrap b,
+			LoggingHandler handler) {
+		updateConfiguration(b, NettyPipeline.LoggingHandler, logConfiguration(handler));
+		return b;
+	}
+
+	static ChannelHandler removeConfiguration(ChannelHandler handler, String name) {
 		if (handler instanceof BootstrapPipelineHandler) {
 			BootstrapPipelineHandler rph =
 					new BootstrapPipelineHandler((BootstrapPipelineHandler) handler);
@@ -193,7 +228,7 @@ public abstract class BootstrapHandlers {
 		return handler;
 	}
 
-	static ChannelHandler addPipeline(ChannelHandler handler,
+	static ChannelHandler updateConfiguration(ChannelHandler handler,
 			String name,
 			Consumer<? super Channel> c) {
 
@@ -314,4 +349,7 @@ public abstract class BootstrapHandlers {
 
 	BootstrapHandlers() {
 	}
+
+	final static ChannelOption<ChannelOperations.OnNew<?>> OPS_OPTION = ChannelOption
+			.newInstance("ops_factory");
 }

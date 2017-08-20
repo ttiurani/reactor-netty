@@ -17,12 +17,10 @@
 package reactor.ipc.netty.channel;
 
 import java.util.Objects;
-import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelPipeline;
 import io.netty.channel.pool.ChannelPool;
 import io.netty.util.concurrent.Future;
 import org.reactivestreams.Publisher;
@@ -57,9 +55,7 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	public static <CHANNEL extends Channel> ContextHandler<CHANNEL> newClientContext(
 			MonoSink<Connection> sink,
 			ChannelOperations.OnNew<CHANNEL> channelOpFactory) {
-		return newClientContext(sink,
-				null,
-				channelOpFactory);
+		return newClientContext(sink, null, channelOpFactory);
 	}
 
 	/**
@@ -74,14 +70,12 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	 */
 	public static <CHANNEL extends Channel> ContextHandler<CHANNEL> newClientContext(
 			MonoSink<Connection> sink,
-			ChannelPool pool, ChannelOperations.OnNew<CHANNEL> channelOpFactory) {
+			ChannelPool pool,
+			ChannelOperations.OnNew<CHANNEL> channelOpFactory) {
 		if (pool != null) {
-			return new PooledClientContextHandler<>(channelOpFactory,
-					sink,
-					pool);
+			return new PooledClientContextHandler<>(channelOpFactory, sink, pool);
 		}
-		return new ClientContextHandler<>(channelOpFactory,
-				sink);
+		return new ClientContextHandler<>(channelOpFactory, sink);
 	}
 
 	/**
@@ -92,17 +86,16 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	 *
 	 * @return a new {@link ContextHandler} for servers
 	 */
-	public static ContextHandler<Channel> newServerContext(MonoSink<Connection> sink,
-			ChannelOperations.OnNew<Channel> channelOpFactory) {
-		return new ServerContextHandler(channelOpFactory, sink);
+	public static <CHANNEL extends Channel> ContextHandler<CHANNEL> newServerContext(
+			MonoSink<Connection> sink,
+			ChannelOperations.OnNew<CHANNEL> channelOpFactory) {
+		return new ServerContextHandler<>(channelOpFactory, sink);
 	}
 
 	final MonoSink<Connection>             sink;
 	final ChannelOperations.OnNew<CHANNEL> channelOpFactory;
 
-	BiConsumer<ChannelPipeline, ContextHandler<Channel>> pipelineConfigurator;
-	boolean                                              fired;
-	boolean                                              autoCreateOperations;
+	boolean fired;
 
 	/**
 	 * @param channelOpFactory
@@ -114,45 +107,12 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 		this.channelOpFactory =
 				Objects.requireNonNull(channelOpFactory, "channelOpFactory");
 		this.sink = sink;
-		this.autoCreateOperations = true;
 
 	}
 
 	/**
-	 * Setup protocol specific handlers such as HTTP codec. Should be called before
-	 * binding the context to any channel or bootstrap.
-	 *
-	 * @param pipelineConfigurator a configurator for extra codecs in the {@link
-	 * ChannelPipeline}
-	 *
-	 * @return this context
-	 */
-	public final ContextHandler<CHANNEL> onPipeline(BiConsumer<ChannelPipeline, ContextHandler<Channel>> pipelineConfigurator) {
-		this.pipelineConfigurator =
-				Objects.requireNonNull(pipelineConfigurator, "pipelineConfigurator");
-		return this;
-	}
-
-	/**
-	 * Allow the {@link ChannelOperations} to be created automatically on pipeline setup
-	 *
-	 * @param autoCreateOperations should auto create {@link ChannelOperations}
-	 *
-	 * @return this context
-	 */
-	public final ContextHandler<CHANNEL> autoCreateOperations(boolean autoCreateOperations) {
-		this.autoCreateOperations = autoCreateOperations;
-		return this;
-	}
-
-	/**
-	 * Return a new {@link ChannelOperations} or null if one of the two
-	 * following conditions are not met:
-	 * <ul>
-	 * <li>{@link #autoCreateOperations(boolean)} is true
-	 * </li>
-	 * <li>The passed message is not null</li>
-	 * </ul>
+	 * Return a new {@link ChannelOperations} or null if the passed message is not
+	 * null
 	 *
 	 * @param channel the current {@link Channel}
 	 * @param msg an optional message inbound, meaning the channel has already been
@@ -163,7 +123,7 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	@SuppressWarnings("unchecked")
 	public final ChannelOperations<?, ?> createOperations(Channel channel, Object msg) {
 
-		if (autoCreateOperations || msg != null) {
+		if (msg != null) {
 			ChannelOperations<?, ?> op =
 					channelOpFactory.create((CHANNEL) channel, this, msg);
 
@@ -180,7 +140,8 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 				channel.pipeline()
 				       .get(ChannelOperationsHandler.class).lastContext = this;
 
-				channel.eventLoop().execute(op::onHandlerStart);
+				channel.eventLoop()
+				       .execute(op::onHandlerStart);
 			}
 			return op;
 		}
@@ -189,18 +150,18 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	}
 
 	/**
-	 * Trigger {@link MonoSink#success(Object)} that will signal
-	 * {@link reactor.ipc.netty.NettyConnector#newHandler(BiFunction)} returned
-	 * {@link Mono} subscriber.
+	 * Trigger {@link MonoSink#success(Object)} that will signal {@link
+	 * reactor.ipc.netty.NettyConnector#newHandler(BiFunction)} returned {@link Mono}
+	 * subscriber.
 	 *
 	 * @param context optional context to succeed the associated {@link MonoSink}
 	 */
 	public abstract void fireContextActive(Connection context);
 
 	/**
-	 * Trigger {@link MonoSink#error(Throwable)} that will signal
-	 * {@link reactor.ipc.netty.NettyConnector#newHandler(BiFunction)} returned
-	 * {@link Mono} subscriber.
+	 * Trigger {@link MonoSink#error(Throwable)} that will signal {@link
+	 * reactor.ipc.netty.NettyConnector#newHandler(BiFunction)} returned {@link Mono}
+	 * subscriber.
 	 *
 	 * @param t error to fail the associated {@link MonoSink}
 	 */
@@ -237,18 +198,13 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	@SuppressWarnings("unchecked")
 	public void accept(Channel channel) {
 		try {
-			if (pipelineConfigurator != null) {
-				pipelineConfigurator.accept(channel.pipeline(),
-						(ContextHandler<Channel>) this);
-			}
 			channel.pipeline()
 			       .addLast(NettyPipeline.ReactiveBridge,
 					       new ChannelOperationsHandler(this));
 		}
 		catch (Exception t) {
 			if (log.isErrorEnabled()) {
-				log.error("Error while binding a channelOperation with: " + channel
-								.toString() + " on " + channel.pipeline(),
+				log.error("Error while binding a channelOperation with: " + channel.toString() + " on " + channel.pipeline(),
 						t);
 			}
 		}
@@ -260,9 +216,9 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	}
 
 	/**
-	 * Cleanly terminate a channel according to the current context handler type.
-	 * Server might keep alive and recycle connections, pooled client will release and
-	 * classic client will close.
+	 * Cleanly terminate a channel according to the current context handler type. Server
+	 * might keep alive and recycle connections, pooled client will release and classic
+	 * client will close.
 	 *
 	 * @param channel the channel to unregister
 	 */
@@ -279,5 +235,5 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	 */
 	protected abstract Publisher<Void> onCloseOrRelease(Channel channel);
 
-	static final Logger         log      = Loggers.getLogger(ContextHandler.class);
+	static final Logger log = Loggers.getLogger(ContextHandler.class);
 }

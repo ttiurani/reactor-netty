@@ -100,7 +100,7 @@ public interface HttpServerResponse extends NettyOutbound, HttpInfos {
 	HttpServerResponse headers(HttpHeaders headers);
 
 	/**
-	 * Set the request keepAlive if true otherwise remove the existing connection keep alive header
+	 * Set the request keepAlive if true otherwise removeConfiguration the existing connection keep alive header
 	 *
 	 * @return this outbound
 	 */

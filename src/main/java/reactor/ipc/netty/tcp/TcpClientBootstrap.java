@@ -35,7 +35,7 @@ final class TcpClientBootstrap extends TcpClientOperator {
 	}
 
 	@Override
-	protected Bootstrap configure() {
+	public Bootstrap configure() {
 		return Objects.requireNonNull(bootstrapMapper.apply(source.configure()), "bootstrapMapper");
 	}
 }
