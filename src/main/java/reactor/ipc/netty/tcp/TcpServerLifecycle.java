@@ -42,7 +42,7 @@ final class TcpServerLifecycle extends TcpServerOperator implements Consumer<Con
 	}
 
 	@Override
-	protected Mono<? extends Connection> bind(ServerBootstrap b) {
+	public Mono<? extends Connection> bind(ServerBootstrap b) {
 		Mono<? extends Connection> m = source.bind(b);
 
 		if (onBind != null) {

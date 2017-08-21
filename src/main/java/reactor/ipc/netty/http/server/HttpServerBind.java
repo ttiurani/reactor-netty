@@ -14,54 +14,56 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.http.client;
+package reactor.ipc.netty.http.server;
 
 import java.util.Objects;
 
-import io.netty.bootstrap.Bootstrap;
+import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.EventLoopGroup;
 import io.netty.handler.ssl.JdkSslContext;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.http.HttpResources;
 import reactor.ipc.netty.resources.LoopResources;
-import reactor.ipc.netty.tcp.TcpClient;
+import reactor.ipc.netty.tcp.TcpServer;
 
 /**
  * @author Stephane Maldini
  */
-final class HttpClientConnection extends HttpClient {
+final class HttpServerBind extends HttpServer {
 
-	static final HttpClientConnection INSTANCE = new HttpClientConnection();
+	static final HttpServerBind
+			INSTANCE = new HttpServerBind();
 
-	final TcpClient tcpClient;
+	final TcpServer tcpServer;
 
-	HttpClientConnection() {
-		this(DEFAULT_TCP_CLIENT);
+	HttpServerBind() {
+		this(DEFAULT_TCP_SERVER);
 	}
 
-	HttpClientConnection(TcpClient tcpClient) {
-		this.tcpClient = Objects.requireNonNull(tcpClient, "tcpClient");
+	HttpServerBind(TcpServer tcpServer) {
+		this.tcpServer = Objects.requireNonNull(tcpServer, "tcpServer");
 	}
 
 	@Override
-	protected Mono<? extends Connection> connect(Bootstrap b) {
+	protected Mono<? extends Connection> bind(ServerBootstrap b) {
 		if (b.config()
 		     .group() == null) {
 			LoopResources loops = HttpResources.get();
 
-			boolean useNative = LoopResources.DEFAULT_NATIVE && !(tcpClient.sslContext() instanceof JdkSslContext);
+			boolean useNative = LoopResources.DEFAULT_NATIVE && !(tcpServer.sslContext() instanceof JdkSslContext);
 
-			EventLoopGroup elg = loops.onClient(useNative);
+			EventLoopGroup selector = loops.onServerSelect(useNative);
+			EventLoopGroup elg = loops.onServer(useNative);
 
-			b.group(elg)
-			 .channel(loops.onChannel(elg));
+			b.group(selector, elg)
+			 .channel(loops.onServerChannel(elg));
 		}
-		return tcpClient.connect(b);
+		return tcpServer.bind(b);
 	}
 
 	@Override
-	protected TcpClient tcpConfiguration() {
-		return tcpClient;
+	protected TcpServer tcpConfiguration() {
+		return tcpServer;
 	}
 }

@@ -34,8 +34,8 @@ abstract class HttpClientOperator extends HttpClient {
 	}
 
 	@Override
-	protected TcpClient configureTcp() {
-		return source.configureTcp();
+	protected TcpClient tcpConfiguration() {
+		return source.tcpConfiguration();
 	}
 
 	@Override

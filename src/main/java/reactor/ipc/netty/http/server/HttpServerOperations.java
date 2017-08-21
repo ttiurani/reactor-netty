@@ -30,6 +30,7 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.DefaultHttpResponse;
 import io.netty.handler.codec.http.FullHttpResponse;
@@ -40,7 +41,9 @@ import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpMessage;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpRequest;
+import io.netty.handler.codec.http.HttpRequestDecoder;
 import io.netty.handler.codec.http.HttpResponse;
+import io.netty.handler.codec.http.HttpResponseEncoder;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
@@ -48,12 +51,15 @@ import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.codec.http.cookie.Cookie;
 import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
 import io.netty.util.AsciiString;
+import io.netty.util.Attribute;
+import io.netty.util.AttributeKey;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.FutureMono;
 import reactor.ipc.netty.NettyOutbound;
+import reactor.ipc.netty.NettyPipeline;
 import reactor.ipc.netty.channel.ContextHandler;
 import reactor.ipc.netty.http.Cookies;
 import reactor.ipc.netty.http.HttpOperations;
@@ -76,6 +82,21 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 	static HttpServerOperations bindHttp(Channel channel,
 			ContextHandler<?> context,
 			Object msg) {
+
+		ChannelPipeline p = channel.pipeline();
+
+		p.addLast(NettyPipeline.HttpDecoder, new HttpRequestDecoder())
+		 .addLast(NettyPipeline.HttpEncoder,new HttpResponseEncoder());
+
+		Attribute<Integer> minCompressionSize = channel.attr(PRODUCE_GZIP);
+
+
+		if(minCompressionSize != null && minCompressionSize.get() >= 0) {
+			p.addLast(NettyPipeline.CompressionHandler, new CompressionHandler(minCompressionSize.get()));
+		}
+
+		p.addLast(NettyPipeline.HttpServerHandler, new HttpServerHandler(context));
+
 		return new HttpServerOperations(channel, context, (HttpRequest) msg);
 	}
 
@@ -464,9 +485,11 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 
 	static final Logger log = Loggers.getLogger(HttpServerOperations.class);
 
-	final static AsciiString      EVENT_STREAM = new AsciiString("text/event-stream");
-	final static FullHttpResponse CONTINUE     =
+	final static        AsciiString           EVENT_STREAM = new AsciiString("text/event-stream");
+	final static        FullHttpResponse      CONTINUE     =
 			new DefaultFullHttpResponse(HttpVersion.HTTP_1_1,
 					HttpResponseStatus.CONTINUE,
 					EMPTY_BUFFER);
+
+	static final AttributeKey<Integer> PRODUCE_GZIP = AttributeKey.newInstance("produceGzip");
 }

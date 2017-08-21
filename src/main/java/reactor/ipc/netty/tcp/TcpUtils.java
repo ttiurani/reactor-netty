@@ -284,9 +284,6 @@ final class TcpUtils {
 					"reactor.ipc.netty.sslHandshakeTimeout",
 					"10000")));
 
-	static final Function<Bootstrap, Bootstrap> REMOVE_PROXY =
-			TcpUtils::removeProxySupport;
-
 	static final Logger                                         log           =
 			Loggers.getLogger(TcpClient.class);
 

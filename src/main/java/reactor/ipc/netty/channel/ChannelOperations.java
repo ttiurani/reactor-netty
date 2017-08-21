@@ -438,6 +438,17 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 		 * @return a new {@link ChannelOperations}
 		 */
 		ChannelOperations<?, ?> create(CHANNEL c, ContextHandler<?> contextHandler, Object msg);
+
+		/**
+		 * True if {@link ChannelOperations} should be created by
+		 * {@link ChannelOperationsHandler} on channelActive event
+		 *
+		 * @return true if {@link ChannelOperations} should be created by
+		 * {@link ChannelOperationsHandler} on channelActive event
+		 */
+		default boolean createOnChannelActive(){
+			return true;
+		}
 	}
 	/**
 	 * The attribute in {@link Channel} to store the current {@link ChannelOperations}

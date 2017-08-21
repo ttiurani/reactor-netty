@@ -35,8 +35,8 @@ final class HttpClientUri extends HttpClientOperator {
 	}
 
 	@Override
-	protected TcpClient configureTcp() {
-		TcpClient tcp = source.configureTcp();
+	protected TcpClient tcpConfiguration() {
+		TcpClient tcp = source.tcpConfiguration();
 	}
 
 	final InetSocketAddress getRemoteAddress(URI uri) {

@@ -34,7 +34,7 @@ final class TcpServerBind extends TcpServer {
 	static final TcpServerBind INSTANCE = new TcpServerBind();
 
 	@Override
-	protected Mono<? extends Connection> bind(ServerBootstrap b) {
+	public Mono<? extends Connection> bind(ServerBootstrap b) {
 		ChannelOperations.OnNew<?> ops = BootstrapHandlers.channelOperationFactory(b);
 
 		if (b.config()

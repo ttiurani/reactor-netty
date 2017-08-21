@@ -225,25 +225,6 @@ public abstract class TcpClient {
 	}
 
 	/**
-	 * Setup all lifecycle callbacks called  on or after {@link Channel} has been
-	 * connected and after it has been disconnected.
-	 *
-	 * @param doOnConnect a consumer observing connect events
-	 * @param doOnConnected a consumer observing connected events
-	 * @param doOnDisconnect a consumer observing disconnected events
-	 *
-	 * @return a new {@link TcpClient}
-	 */
-	public final TcpClient doOnLifecycle(Consumer<? super Bootstrap> doOnConnect,
-			Consumer<? super Connection> doOnConnected,
-			Consumer<? super Connection> doOnDisconnect) {
-		Objects.requireNonNull(doOnConnect, "doOnConnected");
-		Objects.requireNonNull(doOnConnected, "doOnConnected");
-		Objects.requireNonNull(doOnDisconnect, "doOnDisconnect");
-		return new TcpClientLifecycle(this, doOnConnect, doOnConnected, doOnDisconnect);
-	}
-
-	/**
 	 * The host to which this client should connect.
 	 *
 	 * @param host The host to connect to.
@@ -271,12 +252,40 @@ public abstract class TcpClient {
 	}
 
 	/**
+	 * Return true if that {@link TcpClient} is configured with a proxy
+	 *
+	 * @return true if that {@link TcpClient} is configured with a proxy
+	 */
+	public final boolean hasProxy(){
+		return proxyProvider() != null;
+	}
+
+	/**
 	 * Return true if that {@link TcpClient} secured via SSL transport
 	 *
 	 * @return true if that {@link TcpClient} secured via SSL transport
 	 */
 	public final boolean isSecure(){
 		return sslContext() != null;
+	}
+
+
+	/**
+	 * Remove any previously applied SSL configuration customization
+	 *
+	 * @return a new {@link TcpClient}
+	 */
+	public final TcpClient noProxy() {
+		return new TcpClientUnproxy(this);
+	}
+
+	/**
+	 * Remove any previously applied Proxy configuration customization
+	 *
+	 * @return a new {@link TcpClient}
+	 */
+	public final TcpClient noSSL() {
+		return new TcpClientUnsecure(this);
 	}
 
 	/**
@@ -317,6 +326,16 @@ public abstract class TcpClient {
 	 */
 	public final TcpClient proxy(Consumer<? super ProxyProvider.TypeSpec> proxyOptions) {
 		return new TcpClientProxy(this, proxyOptions);
+	}
+
+
+	/**
+	 * R
+	 *
+	 * @return a new {@link TcpClient}
+	 */
+	public ProxyProvider proxyProvider() {
+		return null;
 	}
 
 	/**
@@ -436,24 +455,6 @@ public abstract class TcpClient {
 	 */
 	public SslContext sslContext(){
 		return null;
-	}
-
-	/**
-	 * Remove any previously applied SSL configuration customization
-	 *
-	 * @return a new {@link TcpClient}
-	 */
-	public final TcpClient unproxy() {
-		return bootstrap(TcpUtils.REMOVE_PROXY);
-	}
-
-	/**
-	 * Remove any previously applied Proxy configuration customization
-	 *
-	 * @return a new {@link TcpClient}
-	 */
-	public final TcpClient unsecure() {
-		return new TcpClientUnsecure(this);
 	}
 	/**
 	 * Apply a wire logger configuration using {@link TcpServer} category

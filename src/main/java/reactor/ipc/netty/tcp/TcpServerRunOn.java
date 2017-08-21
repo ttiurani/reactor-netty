@@ -39,7 +39,7 @@ final class TcpServerRunOn extends TcpServerOperator {
 	}
 
 	@Override
-	protected ServerBootstrap configure() {
+	public ServerBootstrap configure() {
 		ServerBootstrap b = source.configure();
 
 		boolean useNative = preferNative && !(sslContext() instanceof JdkSslContext);

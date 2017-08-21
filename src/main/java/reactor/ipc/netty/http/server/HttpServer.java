@@ -17,255 +17,302 @@
 package reactor.ipc.netty.http.server;
 
 import java.util.Objects;
-import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
+import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelPipeline;
-import io.netty.handler.codec.http.HttpRequestDecoder;
-import io.netty.handler.codec.http.HttpResponseEncoder;
+import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
-import io.netty.util.NetUtil;
-
 import org.reactivestreams.Publisher;
+import reactor.core.Exceptions;
 import reactor.core.publisher.Mono;
-import reactor.core.publisher.MonoSink;
 import reactor.ipc.netty.Connection;
-import reactor.ipc.netty.NettyConnector;
-import reactor.ipc.netty.NettyInbound;
-import reactor.ipc.netty.NettyOutbound;
-import reactor.ipc.netty.NettyPipeline;
+import reactor.ipc.netty.channel.BootstrapHandlers;
+import reactor.ipc.netty.channel.ChannelOperations;
 import reactor.ipc.netty.channel.ContextHandler;
-import reactor.ipc.netty.http.HttpResources;
-import reactor.ipc.netty.options.ServerOptions;
-import reactor.ipc.netty.BlockingConnection;
 import reactor.ipc.netty.tcp.TcpServer;
 
 /**
- * Base functionality needed by all servers that communicate with clients over HTTP.
+ * A HttpClient allows to build in a safe immutable way an http server that is
+ * materialized and connecting when {@link #bind(ServerBootstrap)} is ultimately called.
+ * <p>
+ * <p> Internally, materialization happens in three phases, first {@link
+ * #tcpConfiguration()} is called to retrieve a ready to use {@link TcpServer}, then
+ * {@link TcpServer#configure()} retrieve a usable {@link ServerBootstrap} for the final
+ * {@link #bind(ServerBootstrap)} is called. <p> Examples:
+ * <pre>
+ * {@code
+ * HttpClient.create()
+ * .uri("http://example.com")
+ * .get()
+ * .single()
+ * .block();
+ * }
+ * {@code
+ * HttpClient.create()
+ * .uri("http://example.com")
+ * .post()
+ * .send(Flux.just(bb1, bb2, bb3))
+ * .single(res -> Mono.just(res.status()))
+ * .block();
+ * }
+ * {@code
+ * HttpClient.create()
+ * .uri("http://example.com")
+ * .body(ByteBufFlux.fromByteArray(flux))
+ * .post()
+ * .single(res -> Mono.just(res.status()))
+ * .block();
+ * }
  *
  * @author Stephane Maldini
- * @author Violeta Georgieva
  */
-public final class HttpServer
-		implements NettyConnector<HttpServerRequest, HttpServerResponse> {
+public abstract class HttpServer {
 
 	/**
-	 * Build a simple Netty HTTP server listening on localhost (127.0.0.1) and
-	 * port {@literal 80}.
+	 * Prepare a pooled {@link HttpServer}
 	 *
-	 * @return a simple HTTP Server
+	 * @return a {@link HttpServer}
 	 */
 	public static HttpServer create() {
-		return builder().build();
+		return HttpServerBind.INSTANCE;
 	}
 
 	/**
-	 * Build a simple Netty HTTP server listening over bind address and port passed
-	 * through the {@link HttpServerOptions}.
-	 * Use {@literal 0} to let the system assign a random port.
+	 * Prepare a pooled {@link HttpServer}
 	 *
-	 * @param options the options for the server, including bind address and port.
-	 * @return a simple HTTP server
+	 * @return a {@link HttpServer}
 	 */
-	public static HttpServer create(Consumer<? super HttpServerOptions.Builder> options) {
-		return builder().options(options).build();
+	public static HttpServer from(TcpServer tcpServer) {
+		return new HttpServerBind(tcpServer);
 	}
 
 	/**
-	 * Build a simple Netty HTTP server listening on localhost (127.0.0.1) and the provided
-	 * port
-	 * Use {@literal 0} to let the system assign a random port.
+	 * Bind the {@link HttpServer} and return a {@link Mono} of {@link Connection}. If
+	 * {@link Mono} is cancelled, the underlying binding will be aborted. Once the {@link
+	 * Connection} has been emitted and is not necessary anymore, disposing main server
+	 * loop must be done by the user via {@link Connection#dispose()}.
 	 *
-	 * @param port the port to listen to, or 0 to dynamically attribute one.
-	 * @return a simple HTTP server
-	 */
-	public static HttpServer create(int port) {
-		return builder().bindAddress("0.0.0.0").port(port).build();
-	}
-
-	/**
-	 * Build a simple Netty HTTP server listening on the provided bind address and
-	 * port {@literal 80}.
+	 * If updateConfiguration phase fails, a {@link Mono#error(Throwable)} will be returned;
 	 *
-	 * @param bindAddress address to listen for (e.g. 0.0.0.0 or 127.0.0.1)
-	 * @return a simple HTTP server
+	 * @return a {@link Mono} of {@link Connection}
 	 */
-	public static HttpServer create(String bindAddress) {
-		return builder().bindAddress(bindAddress).build();
-	}
-
-	/**
-	 * Build a simple Netty HTTP server listening on the provided bind address and port.
-	 *
-	 * @param bindAddress address to listen for (e.g. 0.0.0.0 or 127.0.0.1)
-	 * @param port the port to listen to, or 0 to dynamically attribute one.
-	 * @return a simple HTTP server
-	 */
-	public static HttpServer create(String bindAddress, int port) {
-		return builder().bindAddress(bindAddress).port(port).build();
-	}
-
-	/**
-	 * Creates a builder for {@link HttpServer HttpServer}
-	 *
-	 * @return a new HttpServer builder
-	 */
-	public static HttpServer.Builder builder() {
-		return new HttpServer.Builder();
-	}
-
-	private final TcpBridgeServer server;
-	final HttpServerOptions options;
-
-	private HttpServer(HttpServer.Builder builder) {
-		HttpServerOptions.Builder serverOptionsBuilder = HttpServerOptions.builder();
-		serverOptionsBuilder.loopResources(HttpResources.get());
-		if (Objects.isNull(builder.options)) {
-			serverOptionsBuilder.host(builder.bindAddress)
-			                    .port(builder.port);
+	public Mono<? extends Connection> bind() {
+		ServerBootstrap b;
+		try{
+			b = tcpConfiguration().configure();
 		}
-		else {
-			builder.options.accept(serverOptionsBuilder);
+		catch (Throwable t){
+			Exceptions.throwIfFatal(t);
+			return Mono.error(t);
 		}
-		this.options = serverOptionsBuilder.build();
-		this.server = new TcpBridgeServer(this.options);
+		return bind(b);
 	}
 
 	/**
-	 * Get a copy of the {@link HttpServerOptions} currently in effect.
+	 * Enable GZip response compression if the client request presents accept encoding
+	 * headers.
 	 *
-	 * @return the http server options
+	 * @return a new {@link HttpServer}
 	 */
-	public final HttpServerOptions options() {
-		return this.options.duplicate();
+	public final HttpServer compress() {
+		return tcpConfiguration(COMPRESS_ATTR_CONFIG);
 	}
 
-	@Override
-	public String toString() {
-		return "HttpServer: " + options.asSimpleString();
+	/**
+	 * Enable GZip response compression if the client request presents accept encoding
+	 * headers
+	 * AND the response reaches a minimum threshold
+	 *
+	 * @param minResponseSize compression is performed once response size exceeds given
+	 * value in byte
+	 *
+	 * @return a new {@link HttpServer}
+	 */
+	public final HttpServer compress(int minResponseSize) {
+		if (minResponseSize < 0) {
+			throw new IllegalArgumentException("minResponseSize must be positive");
+		}
+		return tcpConfiguration(tcp -> tcp.attr(HttpServerOperations.PRODUCE_GZIP, minResponseSize));
 	}
 
-	@Override
+	/**
+	 * Setup a callback called when {@link io.netty.channel.ServerChannel} is about to
+	 * bind.
+	 *
+	 * @param doOnBind a consumer observing server start event
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	public final HttpServer doOnBind(Consumer<? super ServerBootstrap> doOnBind) {
+		return tcpConfiguration(tcp -> tcp.doOnBind(doOnBind));
+
+	}
+
+	/**
+	 * Setup a callback called when {@link io.netty.channel.ServerChannel} is about to
+	 * bind.
+	 *
+	 * @param doOnBound a consumer observing server started event
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	public final HttpServer doOnBound(Consumer<? super Connection> doOnBound) {
+		return tcpConfiguration(tcp -> tcp.doOnBound(doOnBound));
+	}
+
+	/**
+	 * Setup a callback called when {@link io.netty.channel.ServerChannel} is about to
+	 * bind.
+	 *
+	 * @param doOnUnbind a consumer observing server stop event
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	public final HttpServer doOnUnbind(Consumer<? super Connection> doOnUnbind) {
+		return tcpConfiguration(tcp -> tcp.doOnUnbind(doOnUnbind));
+	}
+
+	/**
+	 * Attach an IO handler to react on connected server
+	 *
+	 * @param handler an IO handler that can dispose underlying connection when {@link
+	 * Publisher} terminates.
+	 *
+	 * @return a new {@link HttpServer}
+	 */
 	@SuppressWarnings("unchecked")
-	public Mono<? extends Connection> newHandler(BiFunction<? super HttpServerRequest, ? super
-			HttpServerResponse, ? extends Publisher<Void>> handler) {
+	public final HttpServer handler(BiFunction<? super HttpServerRequest, ? super HttpServerResponse, ? extends Publisher<Void>> handler) {
 		Objects.requireNonNull(handler, "handler");
-		return server.newHandler((BiFunction<NettyInbound, NettyOutbound, Publisher<Void>>) handler);
+		return doOnBound(c -> Mono.fromDirect(handler.apply((HttpServerRequest) c,
+				(HttpServerResponse) c))
+		                         .subscribe(c.disposeSubscriber()));
+	}
+
+	/**
+	 * Disable gzip compression
+	 *
+	 * @return a new {@link HttpServer}
+	 */
+	public final HttpServer noCompression() {
+		return tcpConfiguration(COMPRESS_ATTR_DISABLE);
+	}
+
+	/**
+	 * Apply {@link ServerBootstrap} configuration given mapper taking currently
+	 * configured one and returning a new one to be ultimately used for socket binding.
+	 * <p> Configuration will apply during {@link #tcpConfiguration()} phase.
+	 *
+	 * @param tcpMapper A tcpServer mapping function to update tcp configuration and
+	 * return an enriched tcp server to use.
+	 *
+	 * @return a new {@link HttpServer}
+	 */
+	public final HttpServer tcpConfiguration(Function<? super TcpServer, ? extends TcpServer> tcpMapper) {
+		return new HttpServerTcpConfig(this, tcpMapper);
 	}
 
 	/**
 	 * Define routes for the server through the provided {@link HttpServerRoutes} builder.
 	 *
 	 * @param routesBuilder provides a route builder to be mutated in order to define routes.
-	 * @return a new {@link Mono} starting the router on subscribe
+	 * @return a new {@link HttpServer} starting the router on subscribe
 	 */
-	public Mono<? extends Connection> newRouter(Consumer<? super HttpServerRoutes>
+	public final HttpServer router(Consumer<? super HttpServerRoutes>
 			routesBuilder) {
 		Objects.requireNonNull(routesBuilder, "routeBuilder");
 		HttpServerRoutes routes = HttpServerRoutes.newRoutes();
 		routesBuilder.accept(routes);
-		return newHandler(routes);
+		return handler(routes);
+	}
+	/**
+	 * Apply a wire logger configuration using {@link TcpServer} category
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	public final HttpServer wiretap() {
+		return tcpConfiguration(tcp -> tcp.bootstrap(b -> BootstrapHandlers.updateLogSupport(
+				b,
+				LOGGING_HANDLER)));
 	}
 
-	public BlockingConnection startRouter(Consumer<? super HttpServerRoutes> routesBuilder) {
-		Objects.requireNonNull(routesBuilder, "routeBuilder");
-		HttpServerRoutes routes = HttpServerRoutes.newRoutes();
-		routesBuilder.accept(routes);
-		return start(routes);
+	/**
+	 * Apply a wire logger configuration
+	 *
+	 * @param category the logger category
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	public final HttpServer wiretap(String category) {
+		return wiretap(category, LogLevel.DEBUG);
 	}
 
-	public void startRouterAndAwait(Consumer<? super HttpServerRoutes> routesBuilder,
-			Consumer<BlockingConnection> onStart) {
-		Objects.requireNonNull(routesBuilder, "routeBuilder");
-		HttpServerRoutes routes = HttpServerRoutes.newRoutes();
-		routesBuilder.accept(routes);
-		startAndAwait(routes, onStart);
+	/**
+	 * Apply a wire logger configuration
+	 *
+	 * @param category the logger category
+	 * @param level the logger level
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	public final HttpServer wiretap(String category, LogLevel level) {
+		Objects.requireNonNull(category, "category");
+		Objects.requireNonNull(level, "level");
+		return tcpConfiguration(tcp -> tcp.bootstrap(b -> BootstrapHandlers.updateLogSupport(
+				b,
+				new LoggingHandler(category, level))));
 	}
 
-	static final LoggingHandler loggingHandler = new LoggingHandler(HttpServer.class);
+	/**
+	 * Bind the {@link HttpServer} and return a {@link Mono} of {@link Connection}
+	 *
+	 * @param b the {@link ServerBootstrap} to bind
+	 *
+	 * @return a {@link Mono} of {@link Connection}
+	 */
+	protected abstract Mono<? extends Connection> bind(ServerBootstrap b);
 
-	final class TcpBridgeServer extends TcpServer
-			implements BiConsumer<ChannelPipeline, ContextHandler<Channel>> {
+	/**
+	 * Materialize a TcpServer from the parent {@link HttpServer} chain to use with
+	 * {@link #bind(ServerBootstrap)} or separately
+	 *
+	 * @return a configured {@link TcpServer}
+	 */
+	protected TcpServer tcpConfiguration() {
+		return DEFAULT_TCP_SERVER;
+	}
 
-		TcpBridgeServer(ServerOptions options) {
-			super(options);
+	static final LoggingHandler LOGGING_HANDLER = new LoggingHandler(HttpServer.class);
+
+	static final ChannelOperations.OnNew<?> HTTP_OPS = new ChannelOperations.OnNew<Channel>() {
+		@Override
+		public ChannelOperations<?, ?> create(Channel c,
+				ContextHandler<?> contextHandler,
+				Object msg) {
+			return HttpServerOperations.bindHttp(c, contextHandler, msg);
 		}
 
 		@Override
-		protected ContextHandler<Channel> doHandler(
-				BiFunction<? super NettyInbound, ? super NettyOutbound, ? extends Publisher<Void>> handler,
-				MonoSink<Connection> sink) {
-			return ContextHandler.newServerContext(sink,
-					options,
-					loggingHandler,
-					(ch, c, msg) -> HttpServerOperations.bindHttp(ch, handler, c, msg))
-			                     .onPipeline(this)
-			                     .autoCreateOperations(false);
-		}
-
-        @Override
-        public void accept(ChannelPipeline p, ContextHandler<Channel> c) {
-            p.addLast(NettyPipeline.HttpDecoder, new HttpRequestDecoder())
-                    .addLast(NettyPipeline.HttpEncoder,new HttpResponseEncoder());
-
-            if(options.minCompressionResponseSize() >= 0) {
-                    p.addLast(NettyPipeline.CompressionHandler, new CompressionHandler(options.minCompressionResponseSize()));
-            }
-
-            p.addLast(NettyPipeline.HttpServerHandler, new HttpServerHandler(c));
-        }
-
-		@Override
-		protected LoggingHandler loggingHandler() {
-			return loggingHandler;
+		public boolean createOnChannelActive() {
+			return false;
 		}
 	}
 
-	public static final class Builder {
-		private String bindAddress = NetUtil.LOCALHOST.getHostAddress();
-		private int port = 80;
-		private Consumer<? super HttpServerOptions.Builder> options;
+	static final Function<ServerBootstrap, ServerBootstrap> HTTP_OPS_CONF = b -> {
+		BootstrapHandlers.channelOperationFactory(b, HTTP_OPS);
+		return b;
+	};
 
-		private Builder() {
-		}
+	static final TcpServer DEFAULT_TCP_SERVER = TcpServer.create()
+	                                                     .bindAddress("0.0.0.0")
+	                                                     .port(80)
+	                                                     .bootstrap(HTTP_OPS_CONF);
 
-		/**
-		 * The address to listen for (e.g. 0.0.0.0 or 127.0.0.1)
-		 *
-		 * @param bindAddress address to listen for (e.g. 0.0.0.0 or 127.0.0.1)
-		 * @return {@code this}
-		 */
-		public final Builder bindAddress(String bindAddress) {
-			this.bindAddress = Objects.requireNonNull(bindAddress, "bindAddress");
-			return this;
-		}
+	static final Function<TcpServer, TcpServer> COMPRESS_ATTR_CONFIG =
+			tcp -> tcp.attr(HttpServerOperations.PRODUCE_GZIP, 0);
 
-		/**
-		 * The port to listen to, or 0 to dynamically attribute one.
-		 *
-		 * @param port the port to listen to, or 0 to dynamically attribute one.
-		 * @return {@code this}
-		 */
-		public final Builder port(int port) {
-			this.port = Objects.requireNonNull(port, "port");
-			return this;
-		}
-
-		/**
-		 * The options for the server, including bind address and port.
-		 *
-		 * @param options the options for the server, including bind address and port.
-		 * @return {@code this}
-		 */
-		public final Builder options(Consumer<? super HttpServerOptions.Builder> options) {
-			this.options = Objects.requireNonNull(options, "options");
-			return this;
-		}
-
-		public HttpServer build() {
-			return new HttpServer(this);
-		}
-	}
+	static final Function<TcpServer, TcpServer> COMPRESS_ATTR_DISABLE =
+			tcp -> tcp.attr(HttpServerOperations.PRODUCE_GZIP, null);
 }

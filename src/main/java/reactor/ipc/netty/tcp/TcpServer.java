@@ -143,6 +143,37 @@ public abstract class TcpServer {
 	}
 
 	/**
+	 * Bind the {@link TcpServer} and return a {@link Mono} of {@link Connection}
+	 *
+	 * @param b the {@link ServerBootstrap} to bind
+	 *
+	 * @return a {@link Mono} of {@link Connection}
+	 */
+	public abstract Mono<? extends Connection> bind(ServerBootstrap b);
+
+	/**
+	 * The host to which this client should connect.
+	 *
+	 * @param host The host to connect to.
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	public final TcpServer bindAddress(String host) {
+		Objects.requireNonNull(host, "host");
+		return bootstrap(b -> b.localAddress(host, getPort(b)));
+	}
+
+	/**
+	 * Materialize a Bootstrap from the parent {@link TcpServer} chain to use with {@link
+	 * #bind(ServerBootstrap)} or separately
+	 *
+	 * @return a configured {@link Bootstrap}
+	 */
+	public ServerBootstrap configure() {
+		return DEFAULT_BOOTSTRAP.clone();
+	}
+
+	/**
 	 * Setup a callback called when {@link io.netty.channel.ServerChannel} is about to
 	 * bind.
 	 *
@@ -183,43 +214,21 @@ public abstract class TcpServer {
 	}
 
 	/**
-	 * Setup all lifecycle callbacks called on or after {@link io.netty.channel.ServerChannel}
-	 * has been bound and after it has been unbound.
-	 *
-	 * @param onBind a consumer observing server start event
-	 * @param onBound a consumer observing server started event
-	 * @param onUnbound a consumer observing server stop event
-	 *
-	 * @return a new {@link TcpServer}
-	 */
-	public final TcpServer doOnLifecycle(Consumer<? super ServerBootstrap> onBind,
-			Consumer<? super Connection> onBound,
-			Consumer<? super Connection> onUnbound) {
-		Objects.requireNonNull(onBind, "onBind");
-		Objects.requireNonNull(onBound, "onBound");
-		Objects.requireNonNull(onUnbound, "onUnbound");
-		return new TcpServerLifecycle(this, onBind, onBound, onUnbound);
-	}
-
-	/**
-	 * The host to which this client should connect.
-	 *
-	 * @param host The host to connect to.
-	 *
-	 * @return a new {@link TcpServer}
-	 */
-	public final TcpServer host(String host) {
-		Objects.requireNonNull(host, "host");
-		return bootstrap(b -> b.localAddress(host, getPort(b)));
-	}
-
-	/**
 	 * Return true if that {@link TcpServer} secured via SSL transport
 	 *
 	 * @return true if that {@link TcpServer} secured via SSL transport
 	 */
 	public final boolean isSecure(){
 		return sslContext() != null;
+	}
+
+	/**
+	 * Remove any previously applied Proxy configuration customization
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	public final TcpServer noSSL() {
+		return new TcpServerUnsecure(this);
 	}
 
 	/**
@@ -393,15 +402,6 @@ public abstract class TcpServer {
 	}
 
 	/**
-	 * Remove any previously applied Proxy configuration customization
-	 *
-	 * @return a new {@link TcpServer}
-	 */
-	public final TcpServer unsecure() {
-		return bootstrap(TcpUtils::removeSslSupport);
-	}
-
-	/**
 	 * Apply a wire logger configuration using {@link TcpServer} category
 	 *
 	 * @return a new {@link TcpServer}
@@ -436,24 +436,6 @@ public abstract class TcpServer {
 				new LoggingHandler(category, level)));
 	}
 
-	/**
-	 * Materialize a Bootstrap from the parent {@link TcpServer} chain to use with {@link
-	 * #bind(ServerBootstrap)} or separately
-	 *
-	 * @return a configured {@link Bootstrap}
-	 */
-	protected ServerBootstrap configure() {
-		return DEFAULT_BOOTSTRAP.clone();
-	}
-
-	/**
-	 * Bind the {@link TcpServer} and return a {@link Mono} of {@link Connection}
-	 *
-	 * @param b the {@link Bootstrap} to bind
-	 *
-	 * @return a {@link Mono} of {@link Connection}
-	 */
-	protected abstract Mono<? extends Connection> bind(ServerBootstrap b);
 
 	static final ServerBootstrap DEFAULT_BOOTSTRAP =
 			new ServerBootstrap().option(ChannelOption.SO_REUSEADDR, true)

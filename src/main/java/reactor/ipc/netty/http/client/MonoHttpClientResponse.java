@@ -22,7 +22,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.function.Predicate;
 
 import io.netty.channel.Channel;
@@ -42,28 +41,24 @@ import reactor.ipc.netty.channel.AbortedException;
  * @author Stephane Maldini
  */
 final class MonoHttpClientResponse extends Mono<HttpClientResponse> implements
-                                                                    HttpClient.PreparedHttpClient {
+                                                                    HttpClient.RequestContent {
 
 	final HttpClient                                                     parent;
 	final URI                                                            startURI;
 	final HttpMethod                                                     method;
-	final Function<? super HttpClientRequest, ? extends Publisher<Void>> handler;
 
 	static final AsciiString ALL = new AsciiString("*/*");
 
-	MonoHttpClientResponse(HttpClient parent, String url,
-			HttpMethod method,
-			Function<? super HttpClientRequest, ? extends Publisher<Void>> handler) {
+	MonoHttpClientResponse(HttpClient parent, HttpMethod method) {
 		this.parent = parent;
+		this.bootstrap = parent.tcpConfiguration().configure();
 		try {
-			this.startURI = new URI(formatSchemeAndHost(url,
-					method == HttpClient.WS));
+			this.startURI = new URI(formatSchemeAndHost());
 		}
 		catch (URISyntaxException e) {
 			throw Exceptions.bubble(e);
 		}
 		this.method = method == HttpClient.WS ? HttpMethod.GET : method;
-		this.handler = handler;
 
 	}
 
@@ -73,7 +68,8 @@ final class MonoHttpClientResponse extends Mono<HttpClientResponse> implements
 		ReconnectableBridge bridge = new ReconnectableBridge();
 		bridge.activeURI = startURI;
 
-		Mono.defer(() -> parent.client.newHandler(new HttpClientHandler(this, bridge),
+		Mono.defer(() -> parent.connect()client.newHandler(new HttpClientHandler(this,
+						bridge),
 				parent.options.getRemoteAddress(bridge.activeURI),
 				HttpClientUri.isSecure(bridge.activeURI),
 				bridge))
@@ -82,39 +78,45 @@ final class MonoHttpClientResponse extends Mono<HttpClientResponse> implements
 		    .subscribe(subscriber);
 	}
 
+	String formatSchemeAndHost() {
+		String uri = parent.uri();
 
-
-	String formatSchemeAndHost(String url, boolean ws) {
-		if (!url.startsWith(HttpClient.HTTP_SCHEME) && !url.startsWith(HttpClient.WS_SCHEME)) {
+		if (!uri.startsWith(HttpClient.HTTP_SCHEME) && !uri.startsWith(HttpClient.WS_SCHEME)) {
 			StringBuilder schemeBuilder = new StringBuilder();
-			if (ws) {
-				schemeBuilder.append(isSecure() ? HttpClient.WSS_SCHEME : HttpClient.WS_SCHEME);
+
+			boolean isSecure = parent.tcpConfiguration()
+			                         .isSecure();
+
+			if (method == HttpClient.WS) {
+				schemeBuilder.append(
+						isSecure ? HttpClient.WSS_SCHEME : HttpClient.WS_SCHEME);
 			}
 			else {
-				schemeBuilder.append(isSecure() ? HttpClient.HTTPS_SCHEME : HttpClient.HTTP_SCHEME);
+				schemeBuilder.append(
+						isSecure ? HttpClient.HTTPS_SCHEME : HttpClient.HTTP_SCHEME);
 			}
 
 			final String scheme = schemeBuilder.append("://").toString();
-			if (url.startsWith("/")) {
+			if (uri.startsWith("/")) {
 				//consider relative URL, use the base hostname/port or fallback to localhost
-				SocketAddress remote = getAddress();
+				SocketAddress remote = parent.tcpConfiguration().ad;
 
 				if (remote instanceof InetSocketAddress) {
 					InetSocketAddress inet = (InetSocketAddress) remote;
 
-					return scheme + inet.getHostName() + ":" + inet.getPort() + url;
+					return scheme + inet.getHostName() + ":" + inet.getPort() + uri;
 				}
 				else {
-					return scheme + "localhost" + url;
+					return scheme + "localhost" + uri;
 				}
 			}
 			else {
 				//consider absolute URL
-				return scheme + url;
+				return scheme + uri;
 			}
 		}
 		else {
-			return url;
+			return uri;
 		}
 	}
 

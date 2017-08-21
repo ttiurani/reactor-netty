@@ -111,8 +111,7 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	}
 
 	/**
-	 * Return a new {@link ChannelOperations} or null if the passed message is not
-	 * null
+	 * Return a new {@link ChannelOperations} or null if the passed message is not null
 	 *
 	 * @param channel the current {@link Channel}
 	 * @param msg an optional message inbound, meaning the channel has already been
@@ -123,30 +122,26 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	@SuppressWarnings("unchecked")
 	public final ChannelOperations<?, ?> createOperations(Channel channel, Object msg) {
 
-		if (msg != null) {
-			ChannelOperations<?, ?> op =
-					channelOpFactory.create((CHANNEL) channel, this, msg);
+		ChannelOperations<?, ?> op =
+				channelOpFactory.create((CHANNEL) channel, this, msg);
 
-			if (op != null) {
-				ChannelOperations old = ChannelOperations.tryGetAndSet(channel, op);
+		if (op != null) {
+			ChannelOperations old = ChannelOperations.tryGetAndSet(channel, op);
 
-				if (old != null) {
-					if (log.isDebugEnabled()) {
-						log.debug(channel.toString() + "Mixed pooled connection " + "operations between " + op + " - and a previous one " + old);
-					}
-					return null;
+			if (old != null) {
+				if (log.isDebugEnabled()) {
+					log.debug(channel.toString() + "Mixed pooled connection " + "operations between " + op + " - and a previous one " + old);
 				}
-
-				channel.pipeline()
-				       .get(ChannelOperationsHandler.class).lastContext = this;
-
-				channel.eventLoop()
-				       .execute(op::onHandlerStart);
+				return null;
 			}
-			return op;
-		}
 
-		return null;
+			channel.pipeline()
+			       .get(ChannelOperationsHandler.class).lastContext = this;
+
+			channel.eventLoop()
+			       .execute(op::onHandlerStart);
+		}
+		return op;
 	}
 
 	/**

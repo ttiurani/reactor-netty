@@ -94,7 +94,9 @@ final class ChannelOperationsHandler extends ChannelDuplexHandler
 
 	@Override
 	public void channelActive(ChannelHandlerContext ctx) throws Exception {
-		originContext.createOperations(ctx.channel(), null);
+		if(originContext.channelOpFactory.createOnChannelActive()) {
+			originContext.createOperations(ctx.channel(), null);
+		}
 	}
 
 	@Override

@@ -25,17 +25,18 @@ import reactor.ipc.netty.tcp.TcpClient;
  */
 final class HttpClientTcpConfig extends HttpClientOperator {
 
-
-	final Function<? super TcpClient, ? extends TcpClient> bootstrapMapper;
+	final TcpClient client;
 
 	HttpClientTcpConfig(HttpClient client,
 			Function<? super TcpClient, ? extends TcpClient> bootstrapMapper) {
 		super(client);
-		this.bootstrapMapper = Objects.requireNonNull(bootstrapMapper, "tcpMapper");
+		Objects.requireNonNull(bootstrapMapper, "tcpMapper");
+		this.client = Objects.requireNonNull(bootstrapMapper.apply(source.tcpConfiguration()),
+				"tcpMapper");
 	}
 
 	@Override
-	protected TcpClient configureTcp() {
-		return Objects.requireNonNull(bootstrapMapper.apply(source.configureTcp()), "tcpMapper");
+	protected TcpClient tcpConfiguration() {
+		return client;
 	}
 }

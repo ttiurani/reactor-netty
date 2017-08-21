@@ -24,7 +24,6 @@ import java.util.function.Function;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
-import io.netty.channel.EventLoopGroup;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.logging.LogLevel;
@@ -33,14 +32,12 @@ import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.ByteBufFlux;
-import reactor.ipc.netty.ByteBufMono;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.channel.ChannelOperations;
 import reactor.ipc.netty.http.HttpResources;
 import reactor.ipc.netty.http.websocket.WebsocketInbound;
 import reactor.ipc.netty.http.websocket.WebsocketOutbound;
-import reactor.ipc.netty.resources.LoopResources;
 import reactor.ipc.netty.tcp.ProxyProvider;
 import reactor.ipc.netty.tcp.TcpClient;
 import reactor.ipc.netty.tcp.TcpServer;
@@ -49,7 +46,7 @@ import reactor.ipc.netty.tcp.TcpServer;
  * A HttpClient allows to build in a safe immutable way an http client that is
  * materialized and connecting when {@link #connect(Bootstrap)} is ultimately called.
  * <p>
- * <p> Internally, materialization happens in three phases, first {@link #configureTcp()}
+ * <p> Internally, materialization happens in three phases, first {@link #tcpConfiguration()}
  * is called to retrieve a ready to use {@link TcpClient}, then {@link
  * TcpClient#configure()} retrieve a usable {@link Bootstrap} for the final {@link
  * #connect(Bootstrap)} is called.
@@ -65,8 +62,8 @@ import reactor.ipc.netty.tcp.TcpServer;
  * {@code
  * HttpClient.create()
  * .uri("http://example.com")
- * .body(ByteBufFlux.fromByteArray(flux))
  * .post()
+ * .send(Flux.just(bb1, bb2, bb3))
  * .single(res -> Mono.just(res.status()))
  * .block();
  * }
@@ -83,13 +80,25 @@ import reactor.ipc.netty.tcp.TcpServer;
  */
 public abstract class HttpClient {
 
-	public static final String USER_AGENT =
+	public static final String                         USER_AGENT =
 			String.format("ReactorNetty/%s", reactorNettyVersion());
 
 	/**
-	 * A ready to consume {@link HttpClient}
+	 * A ready to request {@link HttpClient}
 	 */
-	public interface PreparedHttpClient {
+	public interface RequestContent {
+
+		ByteBufFlux content();
+
+		<V> Flux<V> stream(Function<? super HttpClientResponse, ? extends Publisher<? extends V>> receiver);
+
+		<V> Mono<V> single(Function<? super HttpClientResponse, ? extends Mono<? extends V>> receiver);
+	}
+
+	/**
+	 * A ready to request {@link HttpClient}
+	 */
+	public interface ResponseContent {
 
 		ByteBufFlux content();
 
@@ -116,16 +125,21 @@ public abstract class HttpClient {
 		return new HttpClientConnection(tcpClient);
 	}
 
-	public final HttpClient body(Publisher<?> bodyPublisher) {
-
+	/**
+	 * Enable gzip compression
+	 *
+	 * @return a new {@link HttpClient}
+	 */
+	public final HttpClient compress() {
+		return tcpConfiguration(COMPRESS_ATTR_CONFIG);
 	}
 
 	/**
 	 * HTTP DELETE to connect the {@link HttpClient}.
 	 *
-	 * @return a {@link PreparedHttpClient} ready to consume for response
+	 * @return a {@link RequestContent} ready to prepare the content for response
 	 */
-	public final PreparedHttpClient delete() {
+	public final RequestContent delete() {
 		return request(HttpMethod.DELETE);
 	}
 
@@ -137,8 +151,7 @@ public abstract class HttpClient {
 	 * @return a new {@link HttpClient}
 	 */
 	public final HttpClient doOnConnect(Consumer<? super Bootstrap> doOnConnect) {
-		Objects.requireNonNull(doOnConnect, "doOnConnect");
-		return new HttpClientLifecycle(this, doOnConnect, null, null);
+		return tcpConfiguration(tcp -> tcp.doOnConnect(doOnConnect));
 	}
 
 	/**
@@ -149,8 +162,7 @@ public abstract class HttpClient {
 	 * @return a new {@link HttpClient}
 	 */
 	public final HttpClient doOnConnected(Consumer<? super Connection> doOnConnected) {
-		Objects.requireNonNull(doOnConnected, "doOnConnected");
-		return new HttpClientLifecycle(this, null, doOnConnected, null);
+		return tcpConfiguration(tcp -> tcp.doOnConnected(doOnConnected));
 	}
 
 	/**
@@ -161,35 +173,15 @@ public abstract class HttpClient {
 	 * @return a new {@link HttpClient}
 	 */
 	public final HttpClient doOnDisconnect(Consumer<? super Connection> doOnDisconnect) {
-		Objects.requireNonNull(doOnDisconnect, "doOnDisconnect");
-		return new HttpClientLifecycle(this, null, null, doOnDisconnect);
-	}
-
-	/**
-	 * Setup all lifecycle callbacks called  on or after {@link Channel} has been
-	 * connected and after it has been disconnected.
-	 *
-	 * @param doOnConnect a consumer observing connect events
-	 * @param doOnConnected a consumer observing connected events
-	 * @param doOnDisconnect a consumer observing disconnected events
-	 *
-	 * @return a new {@link HttpClient}
-	 */
-	public final HttpClient doOnLifecycle(Consumer<? super Bootstrap> doOnConnect,
-			Consumer<? super Connection> doOnConnected,
-			Consumer<? super Connection> doOnDisconnect) {
-		Objects.requireNonNull(doOnConnect, "doOnConnected");
-		Objects.requireNonNull(doOnConnected, "doOnConnected");
-		Objects.requireNonNull(doOnDisconnect, "doOnDisconnect");
-		return new HttpClientLifecycle(this, doOnConnect, doOnConnected, doOnDisconnect);
+		return tcpConfiguration(tcp -> tcp.doOnDisconnect(doOnDisconnect));
 	}
 
 	/**
 	 * HTTP GET to connect the {@link HttpClient}.
 	 *
-	 * @return a {@link PreparedHttpClient} ready to consume for response
+	 * @return a {@link RequestContent} ready to consume for response
 	 */
-	public final PreparedHttpClient get() {
+	public final RequestContent get() {
 		return request(HttpMethod.GET);
 	}
 
@@ -234,38 +226,56 @@ public abstract class HttpClient {
 	}
 
 	/**
+	 * Disable gzip compression
+	 *
+	 * @return a new {@link HttpClient}
+	 */
+	public final HttpClient noCompression() {
+		return tcpConfiguration(COMPRESS_ATTR_DISABLE);
+	}
+
+	/**
+	 * Remove any previously applied SSL configuration customization
+	 *
+	 * @return a new {@link HttpClient}
+	 */
+	public final HttpClient noProxy() {
+		return tcpConfiguration(TcpClient::noProxy);
+	}
+
+	/**
 	 * HTTP OPTIONS to connect the {@link HttpClient}.
 	 *
-	 * @return a {@link PreparedHttpClient} ready to consume for response
+	 * @return a {@link RequestContent} ready to consume for response
 	 */
-	public final PreparedHttpClient options() {
+	public final RequestContent options() {
 		return request(HttpMethod.OPTIONS);
 	}
 
 	/**
 	 * HTTP PATCH to connect the {@link HttpClient}.
 	 *
-	 * @return a {@link PreparedHttpClient} ready to consume for response
+	 * @return a {@link RequestContent} ready to consume for response
 	 */
-	public final PreparedHttpClient patch() {
+	public final RequestContent patch() {
 		return request(HttpMethod.PATCH);
 	}
 
 	/**
 	 * HTTP POST to connect the {@link HttpClient}.
 	 *
-	 * @return a {@link PreparedHttpClient} ready to consume for response
+	 * @return a {@link RequestContent} ready to consume for response
 	 */
-	public final PreparedHttpClient post() {
+	public final RequestContent post() {
 		return request(HttpMethod.POST);
 	}
 
 	/**
 	 * HTTP PUT to connect the {@link HttpClient}.
 	 *
-	 * @return a {@link PreparedHttpClient} ready to consume for response
+	 * @return a {@link RequestContent} ready to consume for response
 	 */
-	public final PreparedHttpClient put() {
+	public final RequestContent put() {
 		return request(HttpMethod.PUT);
 	}
 
@@ -274,16 +284,16 @@ public abstract class HttpClient {
 	 *
 	 * @param method the HTTP method to send
 	 *
-	 * @return a {@link PreparedHttpClient} ready to consume for response
+	 * @return a {@link RequestContent} ready to consume for response
 	 */
-	public PreparedHttpClient request(HttpMethod method) {
+	public RequestContent request(HttpMethod method) {
 		return new MonoHttpClientResponse(this, method);
 	}
 
 	/**
 	 * Apply {@link Bootstrap} configuration given mapper taking currently configured one
 	 * and returning a new one to be ultimately used for socket binding. <p> Configuration
-	 * will apply during {@link #configureTcp()} phase.
+	 * will apply during {@link #tcpConfiguration()} phase.
 	 *
 	 * @param tcpMapper A tcpClient mapping function to update tcp configuration and
 	 * return an enriched tcp client to use.
@@ -292,22 +302,6 @@ public abstract class HttpClient {
 	 */
 	public final HttpClient tcpConfiguration(Function<? super TcpClient, ? extends TcpClient> tcpMapper) {
 		return new HttpClientTcpConfig(this, tcpMapper);
-	}
-
-	/**
-	 * Run IO loops on a supplied {@link EventLoopGroup} from the {@link LoopResources}
-	 * container. Will prefer native (epoll) implementation if available unless the
-	 * environment property {@literal reactor.ipc.netty.epoll} is set to {@literal
-	 * false}.
-	 * <p>
-	 * <p>
-	 * <p>
-	 * /** Remove any previously applied SSL configuration customization
-	 *
-	 * @return a new {@link HttpClient}
-	 */
-	public final HttpClient unproxy() {
-		return tcpConfiguration(TcpClient::unproxy);
 	}
 
 	/**
@@ -360,9 +354,9 @@ public abstract class HttpClient {
 	/**
 	 * WebSocket to connect the {@link HttpClient}.
 	 *
-	 * @return a {@link PreparedHttpClient} ready to consume for response
+	 * @return a {@link RequestContent} ready to consume for response
 	 */
-	public final PreparedHttpClient ws() {
+	public final RequestContent ws() {
 		return request(WS, HttpClientRequest::sendWebsocket);
 	}
 
@@ -379,20 +373,10 @@ public abstract class HttpClient {
 	 * @param subprotocols the subprotocol(s) to negotiate, comma-separated, or null if
 	 * not relevant.
 	 *
-	 * @return a {@link PreparedHttpClient} ready to consume for response
+	 * @return a {@link RequestContent} ready to consume for response
 	 */
-	public final PreparedHttpClient ws(String subprotocols) {
+	public final RequestContent ws(String subprotocols) {
 		return request(WS, req -> req.sendWebsocket(subprotocols));
-	}
-
-	/**
-	 * Materialize a TcpClient from the parent {@link HttpClient} chain to use with {@link
-	 * #connect(Bootstrap)} or separately
-	 *
-	 * @return a configured {@link TcpClient}
-	 */
-	protected TcpClient configureTcp() {
-		return DEFAULT_TCP_CLIENT;
 	}
 
 	/**
@@ -403,6 +387,16 @@ public abstract class HttpClient {
 	 * @return a {@link Mono} of {@link Connection}
 	 */
 	protected abstract Mono<? extends Connection> connect(Bootstrap b);
+
+	/**
+	 * Materialize a TcpClient from the parent {@link HttpClient} chain to use with {@link
+	 * #connect(Bootstrap)} or separately
+	 *
+	 * @return a configured {@link TcpClient}
+	 */
+	protected TcpClient tcpConfiguration() {
+		return DEFAULT_TCP_CLIENT;
+	}
 
 	static final LoggingHandler LOGGING_HANDLER = new LoggingHandler(HttpClient.class);
 
@@ -428,4 +422,9 @@ public abstract class HttpClient {
 		                                           .getImplementationVersion())
 		               .orElse("dev");
 	}
+
+	static final Function<TcpClient, TcpClient> COMPRESS_ATTR_CONFIG =
+			tcp -> tcp.attr(HttpClientOperations.ACCEPT_GZIP, true);
+	static final Function<TcpClient, TcpClient> COMPRESS_ATTR_DISABLE =
+			tcp -> tcp.attr(HttpClientOperations.ACCEPT_GZIP, null);
 }

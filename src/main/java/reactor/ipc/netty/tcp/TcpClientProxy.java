@@ -28,12 +28,19 @@ import io.netty.resolver.NoopAddressResolverGroup;
  */
 final class TcpClientProxy extends TcpClientOperator {
 
-	final Consumer<? super ProxyProvider.TypeSpec> proxyOptions;
+	final ProxyProvider proxyProvider;
 
 	TcpClientProxy(TcpClient client,
 			Consumer<? super ProxyProvider.TypeSpec> proxyOptions) {
 		super(client);
-		this.proxyOptions = Objects.requireNonNull(proxyOptions, "proxyOptions");
+		Objects.requireNonNull(proxyOptions, "proxyOptions");
+
+		ProxyProvider.Build builder =
+				(ProxyProvider.Build) ProxyProvider.builder();
+
+		proxyOptions.accept(builder);
+
+		this.proxyProvider = builder.build();
 	}
 
 	@Override
@@ -41,17 +48,17 @@ final class TcpClientProxy extends TcpClientOperator {
 	public Bootstrap configure() {
 		Bootstrap b = source.configure();
 
-		ProxyProvider.Build builder =
-				(ProxyProvider.Build) ProxyProvider.builder();
-
-		proxyOptions.accept(builder);
-
-		b = TcpUtils.updateProxySupport(b, builder.build());
+		b = TcpUtils.updateProxySupport(b, proxyProvider);
 
 		if (b.config()
 		     .resolver() == DefaultAddressResolverGroup.INSTANCE) {
 			return b.resolver(NoopAddressResolverGroup.INSTANCE);
 		}
 		return b;
+	}
+
+	@Override
+	public ProxyProvider proxyProvider() {
+		return this.proxyProvider;
 	}
 }

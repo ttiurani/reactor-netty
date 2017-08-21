@@ -34,12 +34,12 @@ abstract class TcpServerOperator extends TcpServer {
 	}
 
 	@Override
-	protected ServerBootstrap configure() {
+	public ServerBootstrap configure() {
 		return source.configure();
 	}
 
 	@Override
-	protected Mono<? extends Connection> bind(ServerBootstrap b) {
+	public Mono<? extends Connection> bind(ServerBootstrap b) {
 		return source.bind(b);
 	}
 
