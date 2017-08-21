@@ -43,9 +43,8 @@ import reactor.ipc.netty.tcp.TcpClient;
 import reactor.ipc.netty.tcp.TcpServer;
 
 /**
- * A HttpClient allows to build in a safe immutable way an http client that is
+ * A nHttpClient allows to build in a safe immutable way an http client that is
  * materialized and connecting when {@link #connect(Bootstrap)} is ultimately called.
- * <p>
  * <p> Internally, materialization happens in three phases, first {@link #tcpConfiguration()}
  * is called to retrieve a ready to use {@link TcpClient}, then {@link
  * TcpClient#configure()} retrieve a usable {@link Bootstrap} for the final {@link

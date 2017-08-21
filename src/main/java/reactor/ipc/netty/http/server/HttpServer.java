@@ -35,36 +35,21 @@ import reactor.ipc.netty.channel.ContextHandler;
 import reactor.ipc.netty.tcp.TcpServer;
 
 /**
- * A HttpClient allows to build in a safe immutable way an http server that is
+ * An HttpServer allows to build in a safe immutable way an http server that is
  * materialized and connecting when {@link #bind(ServerBootstrap)} is ultimately called.
- * <p>
  * <p> Internally, materialization happens in three phases, first {@link
  * #tcpConfiguration()} is called to retrieve a ready to use {@link TcpServer}, then
  * {@link TcpServer#configure()} retrieve a usable {@link ServerBootstrap} for the final
  * {@link #bind(ServerBootstrap)} is called. <p> Examples:
  * <pre>
  * {@code
- * HttpClient.create()
- * .uri("http://example.com")
- * .get()
- * .single()
+ * HttpServer.create()
+ * .bindAddress("0.0.0.0")
+ * .tcpConfiguration(TcpServer::secure)
+ * .handler((req, res) -> res.sendString(Flux.just("hello"))
+ * .bind()
  * .block();
  * }
- * {@code
- * HttpClient.create()
- * .uri("http://example.com")
- * .post()
- * .send(Flux.just(bb1, bb2, bb3))
- * .single(res -> Mono.just(res.status()))
- * .block();
- * }
- * {@code
- * HttpClient.create()
- * .uri("http://example.com")
- * .body(ByteBufFlux.fromByteArray(flux))
- * .post()
- * .single(res -> Mono.just(res.status()))
- * .block();
  * }
  *
  * @author Stephane Maldini
