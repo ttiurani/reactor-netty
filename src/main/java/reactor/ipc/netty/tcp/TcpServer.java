@@ -18,7 +18,6 @@ package reactor.ipc.netty.tcp;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
-import java.time.Duration;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -33,7 +32,6 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
-import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.util.AttributeKey;
 import io.netty.util.NetUtil;
 import reactor.core.Exceptions;
@@ -309,49 +307,34 @@ public abstract class TcpServer {
 	 * @return a new {@link TcpServer}
 	 */
 	public final TcpServer secure() {
-		return secure(TcpServerSecure.DEFAULT_SSL_CONTEXT, TcpUtils.DEFAULT_SSL_HANDSHAKE_TIMEOUT);
+		return secure(sslProviderBuilder -> sslProviderBuilder.sslContext(TcpServerSecure.DEFAULT_SSL_CONTEXT));
 	}
 
 	/**
-	 * Apply an SSL configuration customization via the passed configurator. The builder
+	 * Apply an SSL configuration customization via the passed builder. The builder
 	 * will produce the {@link SslContext} to be passed to with a default value of
 	 * {@literal 10} seconds handshake timeout unless the environment property {@literal
 	 * reactor.ipc.netty.sslHandshakeTimeout} is set.
 	 *
-	 * @param configurator builder callback for further customization.
+	 * @param sslProviderBuilder builder callback for further customization of SslContext.
 	 *
 	 * @return a new {@link TcpServer}
 	 */
-	public final TcpServer secure(Consumer<? super SslContextBuilder> configurator) {
-		return secure(configurator, TcpUtils.DEFAULT_SSL_HANDSHAKE_TIMEOUT);
-	}
-
-	/**
-	 * Apply an SSL configuration customization via the passed configurator. The builder
-	 * will produce the {@link SslContext} to be passed to with a default value of
-	 * {@literal 10} seconds handshake timeout unless the environment property {@literal
-	 * reactor.ipc.netty.sslHandshakeTimeout} is set.
-	 *
-	 * @param configurator builder callback for further customization.
-	 * @param handshakeTimeout the handshake timeout duration
-	 *
-	 * @return a new {@link TcpServer}
-	 */
-	public final TcpServer secure(Consumer<? super SslContextBuilder> configurator,
-			Duration handshakeTimeout) {
-		return new TcpServerSecure(this, configurator, handshakeTimeout);
+	public final TcpServer secure(Consumer<? super SslProvider.SslContextSpec> sslProviderBuilder) {
+		return new TcpServerSecure(this, sslProviderBuilder);
 	}
 
 	/**
 	 * Apply an SSL configuration customization via the passed {@link SslContext}.
+	 * with a default value of {@literal 10} seconds handshake timeout unless
+	 * the environment property {@literal reactor.ipc.netty.sslHandshakeTimeout} is set.
 	 *
 	 * @param sslContext The context to set when configuring SSL
-	 * @param handshakeTimeout the handshake timeout duration
 	 *
 	 * @return a new {@link TcpServer}
 	 */
-	public final TcpServer secure(SslContext sslContext, Duration handshakeTimeout) {
-		return new TcpServerSecure(this, sslContext, handshakeTimeout);
+	public final TcpServer secure(SslContext sslContext) {
+		return secure(sslProviderBuilder -> sslProviderBuilder.sslContext(sslContext));
 	}
 
 	/**

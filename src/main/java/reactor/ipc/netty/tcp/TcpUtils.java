@@ -18,9 +18,7 @@ package reactor.ipc.netty.tcp;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
-import java.time.Duration;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 import io.netty.bootstrap.AbstractBootstrap;
 import io.netty.bootstrap.Bootstrap;
@@ -70,23 +68,21 @@ final class TcpUtils {
 	}
 
 	static ServerBootstrap updateSslSupport(ServerBootstrap b,
-			SslContext sslContext,
-			Duration sslHandshakeTimeout) {
+			SslProvider sslProvider) {
 
 		BootstrapHandlers.updateConfiguration(b,
 				NettyPipeline.SslHandler,
-				new SslSupportConsumer(sslContext, sslHandshakeTimeout, b));
+				new SslSupportConsumer(sslProvider, b));
 
 		return b;
 	}
 
 	static Bootstrap updateSslSupport(Bootstrap b,
-			SslContext sslContext,
-			Duration sslHandshakeTimeout) {
+			SslProvider sslProvider) {
 
 		BootstrapHandlers.updateConfiguration(b,
 				NettyPipeline.SslHandler,
-				new SslSupportConsumer(sslContext, sslHandshakeTimeout, b));
+				new SslSupportConsumer(sslProvider, b));
 
 		return b;
 	}
@@ -97,7 +93,7 @@ final class TcpUtils {
 						b.config()
 						 .handler());
 
-		return c != null ? c.sslContext : null;
+		return c != null ? c.sslProvider.getSslContext() : null;
 	}
 
 	static SslContext findSslContext(ServerBootstrap b) {
@@ -106,7 +102,7 @@ final class TcpUtils {
 						b.config()
 						 .childHandler());
 
-		return c != null ? c.sslContext : null;
+		return c != null ? c.sslProvider.getSslContext() : null;
 	}
 
 	@SuppressWarnings("unchecked")
@@ -156,15 +152,12 @@ final class TcpUtils {
 
 	static final class SslSupportConsumer implements Consumer<Channel> {
 
-		final SslContext        sslContext;
-		final Duration          sslHandshakeTimeout;
+		final SslProvider sslProvider;
 		final InetSocketAddress sniInfo;
 
-		SslSupportConsumer(SslContext sslContext,
-				Duration sslHandshakeTimeout,
+		SslSupportConsumer(SslProvider sslProvider,
 				AbstractBootstrap b) {
-			this.sslContext = sslContext;
-			this.sslHandshakeTimeout = sslHandshakeTimeout;
+			this.sslProvider = sslProvider;
 
 			if (b instanceof Bootstrap) {
 				SocketAddress sniInfo = ((Bootstrap) b).config()
@@ -188,7 +181,7 @@ final class TcpUtils {
 			SslHandler sslHandler;
 
 			if (sniInfo != null) {
-				sslHandler = sslContext.newHandler(channel.alloc(),
+				sslHandler = sslProvider.getSslContext().newHandler(channel.alloc(),
 						sniInfo.getHostName(),
 						sniInfo.getPort());
 
@@ -201,7 +194,7 @@ final class TcpUtils {
 				}
 			}
 			else {
-				sslHandler = sslContext.newHandler(channel.alloc());
+				sslHandler = sslProvider.getSslContext().newHandler(channel.alloc());
 
 				if (log.isDebugEnabled()) {
 					log.debug("SSL enabled using engine {}",
@@ -211,7 +204,7 @@ final class TcpUtils {
 				}
 			}
 
-			sslHandler.setHandshakeTimeoutMillis(sslHandshakeTimeout.toMillis());
+			sslProvider.configure(sslHandler);
 
 			if (channel.pipeline()
 			           .get(NettyPipeline.ProxyHandler) != null) {
@@ -278,11 +271,6 @@ final class TcpUtils {
 	static final int                            DEFAULT_PORT =
 			System.getenv("PORT") != null ? Integer.parseInt(System.getenv("PORT")) :
 					12012;
-
-	static final Duration DEFAULT_SSL_HANDSHAKE_TIMEOUT =
-			Duration.ofMillis(Integer.parseInt(System.getProperty(
-					"reactor.ipc.netty.sslHandshakeTimeout",
-					"10000")));
 
 	static final Logger                                         log           =
 			Loggers.getLogger(TcpClient.class);

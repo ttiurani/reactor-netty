@@ -16,53 +16,32 @@
 
 package reactor.ipc.netty.tcp;
 
-import java.time.Duration;
 import java.util.Objects;
 import java.util.function.Consumer;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
-import reactor.core.Exceptions;
 
 /**
  * @author Stephane Maldini
  */
 final class TcpClientSecure extends TcpClientOperator {
 
-	final SslContext sslContext;
-	final Duration   handshakeTimeout;
+	final SslProvider sslProvider;
 
-	TcpClientSecure(TcpClient client, SslContext sslContext,
-			Duration handshakeTimeout) {
+	TcpClientSecure(TcpClient client, Consumer<? super SslProvider.SslContextSpec> sslProviderBuilder) {
 		super(client);
-		this.sslContext = Objects.requireNonNull(sslContext, "sslContext");
-		this.handshakeTimeout = Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
-	}
+		Objects.requireNonNull(sslProviderBuilder, "sslProviderBuilder");
 
-
-	TcpClientSecure(TcpClient client,
-			Consumer<? super SslContextBuilder> configurator,
-			Duration handshakeTimeout) {
-		super(client);
-		Objects.requireNonNull(configurator, "configurator");
-		this.handshakeTimeout = Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
-
-		SslContextBuilder builder = SslContextBuilder.forClient();
-		SslContext sslContext;
-		try {
-			configurator.accept(builder);
-			sslContext = builder.build();
-		}
-		catch (Exception sslException) {
-			throw Exceptions.propagate(sslException);
-		}
-		this.sslContext = sslContext;
+		SslProvider.Build builder = (SslProvider.Build) SslProvider.builder();
+		sslProviderBuilder.accept(builder);
+		this.sslProvider = builder.build();
 	}
 
 	@Override
 	public Bootstrap configure() {
-		return TcpUtils.updateSslSupport(source.configure(), sslContext, handshakeTimeout);
+		return TcpUtils.updateSslSupport(source.configure(), sslProvider);
 	}
 
 	static final SslContext DEFAULT_SSL_CONTEXT;
@@ -82,6 +61,6 @@ final class TcpClientSecure extends TcpClientOperator {
 
 	@Override
 	public SslContext sslContext(){
-		return sslContext;
+		return this.sslProvider.getSslContext();
 	}
 }

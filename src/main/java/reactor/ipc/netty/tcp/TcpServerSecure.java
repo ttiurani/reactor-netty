@@ -16,7 +16,6 @@
 
 package reactor.ipc.netty.tcp;
 
-import java.time.Duration;
 import java.util.Objects;
 import java.util.function.Consumer;
 
@@ -24,51 +23,29 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
-import reactor.core.Exceptions;
 
 /**
  * @author Stephane Maldini
  */
 final class TcpServerSecure extends TcpServerOperator {
 
-	final SslContext sslContext;
-	final Duration   handshakeTimeout;
+	final SslProvider sslProvider;
 
-	TcpServerSecure(TcpServer server, SslContext sslContext,
-			Duration handshakeTimeout) {
+	TcpServerSecure(TcpServer server, Consumer<? super SslProvider.SslContextSpec> sslProviderBuilder) {
 		super(server);
-		this.sslContext = Objects.requireNonNull(sslContext, "sslContext");
-		this.handshakeTimeout = Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
-	}
+		Objects.requireNonNull(sslProviderBuilder, "sslProviderBuilder");
 
-	TcpServerSecure(TcpServer server,
-			Consumer<? super SslContextBuilder> configurator,
-			Duration handshakeTimeout) {
-		super(server);
-		Objects.requireNonNull(configurator, "configurator");
-		this.handshakeTimeout = Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
-		SslContext sslContext;
-		try {
-			SslContextBuilder builder = SslContextBuilder.forServer(
-					DEFAULT_SSL_CONTEXT_SELF.certificate(),
-					DEFAULT_SSL_CONTEXT_SELF.privateKey());
 
-			configurator.accept(builder);
-			sslContext = builder.build();
-		}
-		catch (Exception sslException) {
-			throw Exceptions.propagate(sslException);
-		}
-
-		this.sslContext = sslContext;
+		SslProvider.Build builder = (SslProvider.Build) SslProvider.builder();
+		sslProviderBuilder.accept(builder);
+		this.sslProvider = builder.build();
 	}
 
 	@Override
 	public ServerBootstrap configure() {
-		return TcpUtils.updateSslSupport(source.configure(), sslContext, handshakeTimeout);
+		return TcpUtils.updateSslSupport(source.configure(), sslProvider);
 	}
 
-	static final SelfSignedCertificate DEFAULT_SSL_CONTEXT_SELF;
 	static final SslContext            DEFAULT_SSL_CONTEXT;
 
 	static {
@@ -85,11 +62,10 @@ final class TcpServerSecure extends TcpServerOperator {
 			sslContext = null;
 		}
 		DEFAULT_SSL_CONTEXT = sslContext;
-		DEFAULT_SSL_CONTEXT_SELF = cert;
 	}
 
 	@Override
 	public SslContext sslContext() {
-		return sslContext;
+		return this.sslProvider.getSslContext();
 	}
 }
