@@ -73,7 +73,7 @@ import reactor.ipc.netty.FutureMono;
 import reactor.ipc.netty.NettyInbound;
 import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.NettyPipeline;
-import reactor.ipc.netty.channel.ContextHandler;
+import reactor.ipc.netty.channel.ChannelSink;
 import reactor.ipc.netty.http.Cookies;
 import reactor.ipc.netty.http.HttpOperations;
 import reactor.ipc.netty.http.websocket.WebsocketInbound;
@@ -85,10 +85,10 @@ import reactor.util.Loggers;
  * @author Stephane Maldini
  * @author Simon Baslé
  */
-class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClientRequest>
+class HttpClientOperations extends HttpOperations<NettyInbound, NettyOutbound>
 		implements HttpClientResponse, HttpClientRequest {
 
-	static HttpOperations bindHttp(Channel channel, ContextHandler<?> context) {
+	static HttpOperations bindHttp(Channel channel, ChannelSink<?> context) {
 		ChannelPipeline pipeline = channel.pipeline();
 
 		pipeline.addLast(NettyPipeline.HttpDecoder, new HttpResponseDecoder())
@@ -139,7 +139,7 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 		this.serverError = replaced.serverError;
 	}
 
-	HttpClientOperations(Channel channel, ContextHandler<?> context) {
+	HttpClientOperations(Channel channel, ChannelSink<?> context) {
 		super(channel, context);
 		this.isSecure = channel.pipeline()
 		                       .get(NettyPipeline.SslHandler) != null;
@@ -155,19 +155,21 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 	}
 
 	@Override
-	protected boolean shouldEmitEmptyContext() {
-		return true;
-	}
-
-	@Override
 	public HttpClientRequest addCookie(Cookie cookie) {
-		if (!hasSentHeaders()) {
+		if (!isSent()) {
 			this.requestHeaders.add(HttpHeaderNames.COOKIE,
 					ClientCookieEncoder.STRICT.encode(cookie));
 		}
 		else {
 			throw new IllegalStateException("Status and headers already sent");
 		}
+		return this;
+	}
+
+	@Override
+	public HttpClientOperations withConnection(Consumer<? super Connection> connectionHandler) {
+		Objects.requireNonNull(connectionHandler, "connectionHandler");
+		connectionHandler.accept(this);
 		return this;
 	}
 
@@ -214,14 +216,14 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 	}
 
 	@Override
-	public HttpClientResponse removeHandler(String name) {
+	public HttpClientOperations removeHandler(String name) {
 		super.removeHandler(name);
 		return this;
 	}
 
 	@Override
 	public HttpClientRequest addHeader(CharSequence name, CharSequence value) {
-		if (!hasSentHeaders()) {
+		if (!isSent()) {
 			this.requestHeaders.add(name, value);
 		}
 		else {
@@ -237,16 +239,10 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 
 	@Override
 	public HttpClientRequest chunkedTransfer(boolean chunked) {
-		if (!hasSentHeaders() && HttpUtil.isTransferEncodingChunked(nettyRequest) != chunked) {
+		if (!isSent() && HttpUtil.isTransferEncodingChunked(nettyRequest) != chunked) {
 			requestHeaders.remove(HttpHeaderNames.TRANSFER_ENCODING);
 			HttpUtil.setTransferEncodingChunked(nettyRequest, chunked);
 		}
-		return this;
-	}
-
-	@Override
-	public HttpClientOperations context(Consumer<Connection> contextCallback) {
-		contextCallback.accept(context());
 		return this;
 	}
 
@@ -284,7 +280,7 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 
 	@Override
 	public HttpClientRequest header(CharSequence name, CharSequence value) {
-		if (!hasSentHeaders()) {
+		if (!isSent()) {
 			this.requestHeaders.set(name, value);
 		}
 		else {
@@ -295,7 +291,7 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 
 	@Override
 	public HttpClientRequest headers(HttpHeaders headers) {
-		if (!hasSentHeaders()) {
+		if (!isSent()) {
 			String host = requestHeaders.get(HttpHeaderNames.HOST);
 			this.requestHeaders.set(headers);
 			this.requestHeaders.set(HttpHeaderNames.HOST, host);
@@ -319,7 +315,7 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 	@Override
 	public boolean isWebsocket() {
 		return get(channel()).getClass()
-		                     .equals(HttpClientWSOperations.class);
+		                     .equals(WebsocketClientOperations.class);
 	}
 
 	@Override
@@ -363,17 +359,6 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 	}
 
 	@Override
-	public Mono<Void> send() {
-		if (markSentHeaderAndBody()) {
-			HttpMessage request = newFullEmptyBodyMessage();
-			return FutureMono.deferFuture(() -> channel().writeAndFlush(request));
-		}
-		else {
-			return Mono.empty();
-		}
-	}
-
-	@Override
 	public NettyOutbound send(Publisher<? extends ByteBuf> source) {
 		if (method() == HttpMethod.GET || method() == HttpMethod.HEAD) {
 			ByteBufAllocator alloc = channel().alloc();
@@ -381,7 +366,7 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 			    .doOnNext(ByteBuf::retain)
 			    .collect(alloc::buffer, ByteBuf::writeBytes)
 			    .flatMapMany(agg -> {
-				    if (!hasSentHeaders() && !HttpUtil.isTransferEncodingChunked(
+				    if (!isSent() && !HttpUtil.isTransferEncodingChunked(
 						    outboundHttpMessage()) && !HttpUtil.isContentLengthSet(
 						    outboundHttpMessage())) {
 					    outboundHttpMessage().headers()
@@ -394,18 +379,15 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 		return super.send(source);
 	}
 
-	@Override
-	public Flux<Long> sendForm(Consumer<Form> formCallback) {
+	final Flux<Long> sendForm(Consumer<HttpClientForm> formCallback) {
 		return new FluxSendForm(this, formCallback);
 	}
 
-	@Override
-	public WebsocketOutbound sendWebsocket() {
+	final WebsocketOutbound sendWebsocket() {
 		return sendWebsocket(null);
 	}
 
-	@Override
-	public WebsocketOutbound sendWebsocket(String subprotocols) {
+	final WebsocketOutbound sendWebsocket(String subprotocols) {
 		Mono<Void> m = withWebsocketSupport(websocketUri(), subprotocols, noopHandler());
 
 		return new WebsocketOutbound() {
@@ -416,7 +398,12 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 			}
 
 			@Override
-			public Connection context() {
+			public NettyOutbound withConnection(Consumer<? super Connection> onConnection) {
+				return null;
+			}
+
+			@Override
+			public Connection connection() {
 				return HttpClientOperations.this;
 			}
 
@@ -427,8 +414,7 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 		};
 	}
 
-	@Override
-	public Mono<Void> receiveWebsocket(String protocols,
+	final Mono<Void> receiveWebsocket(String protocols,
 			BiFunction<? super WebsocketInbound, ? super WebsocketOutbound, ? extends Publisher<Void>> websocketHandler) {
 		Objects.requireNonNull(websocketHandler, "websocketHandler");
 		return withWebsocketSupport(websocketUri(), protocols, websocketHandler);
@@ -453,11 +439,6 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 			throw Exceptions.bubble(e);
 		}
 		return uri;
-	}
-
-	@Override
-	public WebsocketInbound receiveWebsocket() {
-		return null;
 	}
 
 	@Override
@@ -488,10 +469,6 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 	}
 
 	@Override
-	protected void onHandlerStart() {
-	}
-
-	@Override
 	protected void onOutboundComplete() {
 		if (isWebsocket() || isInboundCancelled()) {
 			return;
@@ -511,7 +488,7 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 	@Override
 	protected void onOutboundError(Throwable err) {
 		if(Connection.isPersistent(channel()) && responseState == null){
-			parentContext().fireContextError(err);
+			listener().onError(channel(), err);
 			onHandlerTerminate();
 			return;
 		}
@@ -560,7 +537,7 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 
 			if (checkResponseCode(response)) {
 				prefetchMore(ctx);
-				parentContext().fireContextActive(this);
+				listener().onConnection(this);
 			}
 			if (msg instanceof FullHttpResponse) {
 				super.onInboundNext(ctx, msg);
@@ -619,7 +596,7 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 									.toString());
 				}
 				Exception ex = new HttpClientException(uri(), response);
-				parentContext().fireContextError(ex);
+				listener().onError(channel(), ex);
 				onHandlerTerminate();
 				return false;
 			}
@@ -634,7 +611,7 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 							response.toString());
 				}
 				Exception ex = new HttpClientException(uri(), response);
-				parentContext().fireContextError(ex);
+				listener().onError(channel(), ex);
 				onHandlerTerminate();
 				return false;
 			}
@@ -649,7 +626,7 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 						        .toString());
 			}
 			Exception ex = new RedirectClientException(uri(), response);
-			parentContext().fireContextError(ex);
+			listener().onError(channel(), ex);
 			onHandlerTerminate();
 			return false;
 		}
@@ -694,7 +671,8 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 		if (markSentHeaders()) {
 			addHandlerFirst(NettyPipeline.HttpAggregator, new HttpObjectAggregator(8192));
 
-			HttpClientWSOperations ops = new HttpClientWSOperations(url, protocols, this);
+			WebsocketClientOperations
+					ops = new WebsocketClientOperations(url, protocols, this);
 
 			if (replace(ops)) {
 				Mono<Void> handshake = FutureMono.from(ops.handshakerResult)
@@ -708,8 +686,8 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 			}
 		}
 		else if (isWebsocket()) {
-			HttpClientWSOperations ops =
-					(HttpClientWSOperations) get(channel());
+			WebsocketClientOperations ops =
+					(WebsocketClientOperations) get(channel());
 			if(ops != null) {
 				Mono<Void> handshake = FutureMono.from(ops.handshakerResult);
 
@@ -744,11 +722,11 @@ class HttpClientOperations extends HttpOperations<HttpClientResponse, HttpClient
 
 		static final HttpDataFactory DEFAULT_FACTORY = new DefaultHttpDataFactory(DefaultHttpDataFactory.MINSIZE);
 
-		final HttpClientOperations parent;
-		final Consumer<Form>       formCallback;
+		final HttpClientOperations     parent;
+		final Consumer<HttpClientForm> formCallback;
 
 		FluxSendForm(HttpClientOperations parent,
-				Consumer<Form> formCallback) {
+				Consumer<HttpClientForm> formCallback) {
 			this.parent = parent;
 			this.formCallback = formCallback;
 		}

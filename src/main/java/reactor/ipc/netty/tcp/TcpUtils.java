@@ -273,8 +273,11 @@ final class TcpUtils {
 					12012;
 
 	static final Logger                                         log           =
-			Loggers.getLogger(TcpClient.class);
+			Loggers.getLogger(TcpUtils.class);
 
-	static final ChannelOperations.OnNew<?> TCP_OPS = (ch, c, msg) -> ChannelOperations.bind(ch, c);
+	static final ChannelOperations.OnNew TCP_OPS =
+			(ch, c, msg) -> ChannelOperations.bind(ch, c);
 
+	static final Consumer<SslProvider.SslContextSpec> SSL_DEFAULT_SPEC =
+			sslProviderBuilder -> sslProviderBuilder.sslContext(TcpServerSecure.DEFAULT_SSL_CONTEXT);
 }

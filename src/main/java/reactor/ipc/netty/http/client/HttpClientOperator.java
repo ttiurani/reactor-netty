@@ -42,4 +42,9 @@ abstract class HttpClientOperator extends HttpClient {
 	protected Mono<? extends Connection> connect(Bootstrap b) {
 		return source.connect(b);
 	}
+
+	@Override
+	String uri() {
+		return source.uri();
+	}
 }

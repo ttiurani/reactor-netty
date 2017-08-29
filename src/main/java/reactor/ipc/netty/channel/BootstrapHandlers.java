@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
 import javax.annotation.Nullable;
@@ -35,6 +34,7 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.handler.logging.LoggingHandler;
 import reactor.core.Exceptions;
+import reactor.ipc.netty.ConnectionEvents;
 import reactor.ipc.netty.NettyPipeline;
 import reactor.util.Logger;
 import reactor.util.Loggers;
@@ -53,17 +53,18 @@ public abstract class BootstrapHandlers {
 	 * {@link ChannelInitializer} to safely initialize each child channel.
 	 *
 	 * @param b a server bootstrap
-	 * @param last the final configuration
+	 * @param listener a server event listener
 	 */
-	public static void finalize(ServerBootstrap b, Consumer<? super Channel> last) {
+	public static void finalize(ServerBootstrap b, ConnectionEvents listener) {
 		Objects.requireNonNull(b, "bootstrap");
-		Objects.requireNonNull(last, "last");
+		Objects.requireNonNull(listener, "listener");
+
 		ChannelHandler handler = b.config().childHandler();
 		if (handler instanceof BootstrapPipelineHandler){
 			@SuppressWarnings("unchecked")
 			BootstrapPipelineHandler pipeline = (BootstrapPipelineHandler)handler;
 
-			b.childHandler(new BootstrapInitializerHandler(pipeline, last));
+			b.childHandler(new BootstrapInitializerHandler(pipeline, listener));
 		}
 	}
 
@@ -77,6 +78,7 @@ public abstract class BootstrapHandlers {
 	 * @return a typed configuration or null
 	 */
 	@SuppressWarnings("unchecked")
+	@Nullable
 	public static <C> C findConfiguration(Class<C> clazz,
 			@Nullable ChannelHandler handler) {
 		Objects.requireNonNull(clazz, "configuration type");
@@ -127,7 +129,7 @@ public abstract class BootstrapHandlers {
 	 * @param opsFactory a new {@link ChannelOperations.OnNew} factory
 	 */
 	public static void channelOperationFactory(AbstractBootstrap<?, ?> b,
-			ChannelOperations.OnNew<?> opsFactory) {
+			ChannelOperations.OnNew opsFactory) {
 		Objects.requireNonNull(b, "bootstrap");
 		Objects.requireNonNull(opsFactory, "opsFactory");
 		b.option(OPS_OPTION, opsFactory);
@@ -139,13 +141,14 @@ public abstract class BootstrapHandlers {
 	 * @param b the bootstrap to scan
 	 *
 	 * @return current {@link ChannelOperations.OnNew} factory or null
+	 *
 	 */
 	@SuppressWarnings("unchecked")
-	public static ChannelOperations.OnNew<?> channelOperationFactory(AbstractBootstrap<?, ?> b) {
+	public static ChannelOperations.OnNew channelOperationFactory(AbstractBootstrap<?, ?> b) {
 		Objects.requireNonNull(b, "bootstrap");
-		ChannelOperations.OnNew<?> ops = (ChannelOperations.OnNew<?>) b.config()
-		                                     .options()
-		                                     .get(OPS_OPTION);
+		ChannelOperations.OnNew ops = (ChannelOperations.OnNew) b.config()
+		                                                         .options()
+		                                                         .get(OPS_OPTION);
 		b.option(OPS_OPTION, null);
 		return ops;
 	}
@@ -157,8 +160,9 @@ public abstract class BootstrapHandlers {
 	 * @param b a bootstrap
 	 * @param name a configuration name
 	 * @param c a configuration consumer
+	 * @return the mutated bootstrap
 	 */
-	public static void updateConfiguration(Bootstrap b,
+	public static Bootstrap updateConfiguration(Bootstrap b,
 			String name,
 			Consumer<? super Channel> c) {
 		Objects.requireNonNull(b, "bootstrap");
@@ -166,6 +170,7 @@ public abstract class BootstrapHandlers {
 		Objects.requireNonNull(c, "configuration");
 		b.handler(updateConfiguration(b.config()
 		                               .handler(), name, c));
+		return b;
 	}
 
 	/**
@@ -175,8 +180,9 @@ public abstract class BootstrapHandlers {
 	 * @param b a server bootstrap
 	 * @param name a configuration name
 	 * @param c a configuration consumer
+	 * @return the mutated bootstrap
 	 */
-	public static void updateConfiguration(ServerBootstrap b,
+	public static ServerBootstrap updateConfiguration(ServerBootstrap b,
 			String name,
 			Consumer<? super Channel> c) {
 		Objects.requireNonNull(b, "bootstrap");
@@ -184,6 +190,7 @@ public abstract class BootstrapHandlers {
 		Objects.requireNonNull(c, "configuration");
 		b.childHandler(updateConfiguration(b.config()
 		                                    .childHandler(), name, c));
+		return b;
 	}
 
 	/**
@@ -228,7 +235,7 @@ public abstract class BootstrapHandlers {
 		return handler;
 	}
 
-	static ChannelHandler updateConfiguration(ChannelHandler handler,
+	static ChannelHandler updateConfiguration(@Nullable ChannelHandler handler,
 			String name,
 			Consumer<? super Channel> c) {
 
@@ -267,14 +274,15 @@ public abstract class BootstrapHandlers {
 		};
 	}
 
+	@ChannelHandler.Sharable
 	static final class BootstrapInitializerHandler extends ChannelInitializer<Channel> {
 
 		final List<PipelineConfiguration> pipeline;
-		final Consumer<? super Channel> last;
+		final ConnectionEvents            listener;
 
-		BootstrapInitializerHandler(List<PipelineConfiguration> pipeline, Consumer<? super Channel> last) {
+		BootstrapInitializerHandler(List<PipelineConfiguration> pipeline, ConnectionEvents listener) {
 			this.pipeline = pipeline;
-			this.last = last;
+			this.listener = listener;
 		}
 
 		@Override
@@ -282,7 +290,8 @@ public abstract class BootstrapHandlers {
 			for (int i = 0; i < pipeline.size(); i++) {
 				pipeline.get(i).consumer.accept(ch);
 			}
-			last.accept(ch);
+			ch.pipeline()
+			  .addLast(NettyPipeline.ReactiveBridge, new ChannelOperationsHandler(listener));
 		}
 	}
 
@@ -350,6 +359,6 @@ public abstract class BootstrapHandlers {
 	BootstrapHandlers() {
 	}
 
-	final static ChannelOption<ChannelOperations.OnNew<?>> OPS_OPTION = ChannelOption
+	final static ChannelOption<ChannelOperations.OnNew> OPS_OPTION = ChannelOption
 			.newInstance("ops_factory");
 }

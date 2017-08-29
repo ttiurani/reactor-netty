@@ -24,6 +24,8 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import javax.annotation.Nullable;
+
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelOption;
@@ -31,7 +33,6 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
-import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.resolver.AddressResolverGroup;
 import io.netty.util.AttributeKey;
 import io.netty.util.NetUtil;
@@ -116,7 +117,7 @@ public abstract class TcpClient {
 
 	/**
 	 * Attribute default attribute to the future {@link Channel} connection. They will be
-	 * available via {@link reactor.ipc.netty.NettyInbound#attr(AttributeKey)}.
+	 * available via {@link Channel#attr(AttributeKey)}.
 	 *
 	 * @param key the attribute key
 	 * @param value the attribute value
@@ -187,6 +188,29 @@ public abstract class TcpClient {
 	 * @return a {@link Mono} of {@link Connection}
 	 */
 	public abstract Mono<? extends Connection> connect(Bootstrap b);
+
+	/**
+	 * Block the {@link TcpClient} and return a {@link Connection}. Disposing must be
+	 * done by the user via {@link Connection#dispose()}.
+	 *
+	 * @return a {@link Mono} of {@link Connection}
+	 */
+	public final Connection connectNow() {
+		return connectNow(Duration.ofSeconds(45));
+	}
+
+	/**
+	 * Block the {@link TcpClient} and return a {@link Connection}. Disposing must be
+	 * done by the user via {@link Connection#dispose()}.
+	 *
+	 * @param timeout connect timeout
+	 *
+	 * @return a {@link Mono} of {@link Connection}
+	 */
+	public final Connection connectNow(Duration timeout) {
+		Objects.requireNonNull(timeout, "timeout");
+		return Objects.requireNonNull(connect().block(), "aborted");
+	}
 
 	/**
 	 * Setup a callback called when {@link Channel} is about to connect.
@@ -330,10 +354,11 @@ public abstract class TcpClient {
 
 
 	/**
-	 * R
+	 * Return the current {@link ProxyProvider} if any
 	 *
-	 * @return a new {@link TcpClient}
+	 * @return the current {@link ProxyProvider} if any
 	 */
+	@Nullable
 	public ProxyProvider proxyProvider() {
 		return null;
 	}
@@ -437,9 +462,11 @@ public abstract class TcpClient {
 	 * @return he current {@link SslContext} if that {@link TcpClient} secured via SSL
 	 * transport or null
 	 */
+	@Nullable
 	public SslContext sslContext(){
 		return null;
 	}
+
 	/**
 	 * Apply a wire logger configuration using {@link TcpServer} category
 	 *

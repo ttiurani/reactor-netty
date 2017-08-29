@@ -16,6 +16,8 @@
 
 package reactor.ipc.netty.tcp;
 
+import javax.annotation.Nullable;
+
 import io.netty.bootstrap.Bootstrap;
 import io.netty.handler.ssl.SslContext;
 
@@ -34,6 +36,7 @@ final class TcpClientUnsecure extends TcpClientOperator {
 	}
 
 	@Override
+	@Nullable
 	public SslContext sslContext(){
 		return null;
 	}

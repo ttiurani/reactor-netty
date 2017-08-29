@@ -57,10 +57,11 @@ import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.ConnectionEvents;
 import reactor.ipc.netty.FutureMono;
 import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.NettyPipeline;
-import reactor.ipc.netty.channel.ContextHandler;
+import reactor.ipc.netty.channel.ChannelSink;
 import reactor.ipc.netty.http.Cookies;
 import reactor.ipc.netty.http.HttpOperations;
 import reactor.ipc.netty.http.websocket.WebsocketInbound;
@@ -80,7 +81,7 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 
 	@SuppressWarnings("unchecked")
 	static HttpServerOperations bindHttp(Channel channel,
-			ContextHandler<?> context,
+			ConnectionEvents context,
 			Object msg) {
 
 		ChannelPipeline p = channel.pipeline();
@@ -117,7 +118,7 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 	}
 
 	HttpServerOperations(Channel ch,
-			ContextHandler<?> context,
+			ConnectionEvents context,
 			HttpRequest nettyRequest) {
 		super(ch, context);
 		this.nettyRequest = Objects.requireNonNull(nettyRequest, "nettyRequest");
@@ -130,8 +131,8 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 	}
 
 	@Override
-	public HttpServerOperations context(Consumer<Connection> contextCallback) {
-		contextCallback.accept(context());
+	public HttpServerOperations withConnection(Consumer<? super Connection> contextCallback) {
+		contextCallback.accept(this);
 		return this;
 	}
 
@@ -148,7 +149,7 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 
 	@Override
 	public HttpServerResponse addCookie(Cookie cookie) {
-		if (!hasSentHeaders()) {
+		if (!isSent()) {
 			this.responseHeaders.add(HttpHeaderNames.SET_COOKIE,
 					ServerCookieEncoder.STRICT.encode(cookie));
 		}
@@ -160,7 +161,7 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 
 	@Override
 	public HttpServerResponse addHeader(CharSequence name, CharSequence value) {
-		if (!hasSentHeaders()) {
+		if (!isSent()) {
 			this.responseHeaders.add(name, value);
 		}
 		else {
@@ -170,7 +171,7 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 	}
 
 	public HttpServerResponse chunkedTransfer(boolean chunked) {
-		if (!hasSentHeaders() && HttpUtil.isTransferEncodingChunked(nettyResponse) != chunked) {
+		if (!isSent() && HttpUtil.isTransferEncodingChunked(nettyResponse) != chunked) {
 			responseHeaders.remove(HttpHeaderNames.TRANSFER_ENCODING);
 			HttpUtil.setTransferEncodingChunked(nettyResponse, chunked);
 		}
@@ -189,7 +190,7 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 
 	@Override
 	public HttpServerResponse header(CharSequence name, CharSequence value) {
-		if (!hasSentHeaders()) {
+		if (!isSent()) {
 			this.responseHeaders.set(name, value);
 		}
 		else {
@@ -200,7 +201,7 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 
 	@Override
 	public HttpServerResponse headers(HttpHeaders headers) {
-		if (!hasSentHeaders()) {
+		if (!isSent()) {
 			this.responseHeaders.set(headers);
 		}
 		else {
@@ -337,7 +338,7 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 
 	@Override
 	public HttpServerResponse status(HttpResponseStatus status) {
-		if (!hasSentHeaders()) {
+		if (!isSent()) {
 			this.nettyResponse.setStatus(status);
 		}
 		else {
@@ -366,10 +367,6 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 			return nettyRequest.protocolVersion();
 		}
 		throw new IllegalStateException("request not parsed");
-	}
-
-	@Override
-	protected void onHandlerStart() {
 	}
 
 	@Override

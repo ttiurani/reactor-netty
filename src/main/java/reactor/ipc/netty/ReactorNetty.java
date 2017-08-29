@@ -15,11 +15,16 @@
  */
 package reactor.ipc.netty;
 
+import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+
+import javax.annotation.Nullable;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufHolder;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
@@ -30,7 +35,10 @@ import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.AttributeKey;
 import org.reactivestreams.Publisher;
+import org.reactivestreams.Subscription;
+import reactor.core.publisher.BaseSubscriber;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.SignalType;
 import reactor.util.Logger;
 import reactor.util.Loggers;
 
@@ -40,8 +48,6 @@ import reactor.util.Loggers;
  * @author Stephane Maldini
  */
 final class ReactorNetty {
-
-	static final AttributeKey<Boolean> PERSISTENT_CHANNEL = AttributeKey.newInstance("PERSISTENT_CHANNEL");
 
 	/**
 	 * A common implementation for the {@link Connection#addHandlerLast(String, ChannelHandler)}
@@ -238,11 +244,11 @@ final class ReactorNetty {
 	 */
 	static final class OutboundThen implements NettyOutbound {
 
-		final Connection sourceContext;
-		final Mono<Void> thenMono;
+		final NettyOutbound sourceContext;
+		final Mono<Void>    thenMono;
 
 		OutboundThen(NettyOutbound source, Publisher<Void> thenPublisher) {
-			this.sourceContext = source.context();
+			this.sourceContext = source;
 
 			Mono<Void> parentMono = source.then();
 
@@ -255,8 +261,29 @@ final class ReactorNetty {
 		}
 
 		@Override
-		public Connection context() {
-			return sourceContext;
+		public NettyOutbound withConnection(Consumer<? super Connection> handler) {
+			sourceContext.withConnection(handler);
+			return this;
+		}
+
+		@Override
+		public ByteBufAllocator alloc() {
+			return sourceContext.alloc();
+		}
+
+		@Override
+		public NettyOutbound sendObject(Publisher<?> dataStream) {
+			return then(sourceContext.sendObject(dataStream));
+		}
+
+		@Override
+		public NettyOutbound sendFileChunked(Path file) {
+			return then(sourceContext.sendFileChunked(file));
+		}
+
+		@Override
+		public NettyOutbound sendFile(Path file, long position, long count) {
+			return then(sourceContext.sendFile(file, position, count));
 		}
 
 		@Override
@@ -303,10 +330,6 @@ final class ReactorNetty {
 		}
 	}
 
-	static final Object TERMINATED = new TerminatedHandlerEvent();
-	static final Object RESPONSE_WRITE_COMPLETED = new ResponseWriteCompleted();
-	static final Logger log        = Loggers.getLogger(ReactorNetty.class);
-
 	/**
 	 * A handler that can be used to extract {@link ByteBuf} out of {@link ByteBufHolder},
 	 * optionally also outputting additional messages
@@ -328,4 +351,57 @@ final class ReactorNetty {
 			extractor.accept(ctx, msg);
 		}
 	}
+
+	static final class ChannelDisposer extends BaseSubscriber<Void> {
+
+		final DisposableChannel channelDisposable;
+
+		ChannelDisposer(DisposableChannel channelDisposable) {
+			this.channelDisposable = channelDisposable;
+		}
+
+		@Override
+		protected void hookOnSubscribe(Subscription subscription) {
+			request(Long.MAX_VALUE);
+			channelDisposable.onDispose(this);
+		}
+
+		@Override
+		protected void hookFinally(SignalType type) {
+			if (type != SignalType.CANCEL) {
+				dispose();
+			}
+		}
+	}
+
+	static final Object                TERMINATED               =
+			new TerminatedHandlerEvent();
+	static final Object                RESPONSE_WRITE_COMPLETED =
+			new ResponseWriteCompleted();
+	static final Logger                log                      =
+			Loggers.getLogger(ReactorNetty.class);
+	static final AttributeKey<Boolean> PERSISTENT_CHANNEL       =
+			AttributeKey.newInstance("PERSISTENT_CHANNEL");
+
+	static final ConnectionEvents NOOP_LISTENER = new ConnectionEvents() {
+		@Override
+		public void onConnection(Connection connection) {
+
+		}
+
+		@Override
+		public void onDispose(Channel channel) {
+
+		}
+
+		@Override
+		public void onError(Channel channel, Throwable error) {
+
+		}
+
+		@Override
+		public void onSetup(Channel channel, @Nullable Object msg) {
+
+		}
+	};
 }

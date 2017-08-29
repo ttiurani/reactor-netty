@@ -18,10 +18,13 @@ package reactor.ipc.netty.tcp;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.time.Duration;
 import java.util.Objects;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import javax.annotation.Nullable;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
@@ -34,9 +37,13 @@ import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.util.AttributeKey;
 import io.netty.util.NetUtil;
+import org.reactivestreams.Publisher;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.NettyInbound;
+import reactor.ipc.netty.NettyOutbound;
+import reactor.ipc.netty.DisposableServer;
 import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.resources.LoopResources;
 
@@ -88,7 +95,7 @@ public abstract class TcpServer {
 	/**
 	 * Inject default attribute to the future child {@link Channel} connections. They
 	 * will be
-	 * available via {@link reactor.ipc.netty.NettyInbound#attr(AttributeKey)}.
+	 * available via {@link Channel#attr(AttributeKey)}.
 	 *
 	 * @param key the attribute key
 	 * @param value the attribute value
@@ -128,7 +135,7 @@ public abstract class TcpServer {
 	 *
 	 * @return a {@link Mono} of {@link Connection}
 	 */
-	public final Mono<? extends Connection> bind() {
+	public final Mono<? extends DisposableServer> bind() {
 		ServerBootstrap b;
 		try{
 			b = configure();
@@ -147,19 +154,64 @@ public abstract class TcpServer {
 	 *
 	 * @return a {@link Mono} of {@link Connection}
 	 */
-	public abstract Mono<? extends Connection> bind(ServerBootstrap b);
+	public abstract Mono<? extends DisposableServer> bind(ServerBootstrap b);
 
 	/**
-	 * The host to which this client should connect.
+	 * Start a Server in a blocking fashion, and wait for it to finish initializing. The
+	 * returned {@link DisposableServer} offers simple server API, including to {@link
+	 * DisposableServer#disposeNow()} shut it down in a blocking fashion.
 	 *
-	 * @param host The host to connect to.
-	 *
-	 * @return a new {@link TcpServer}
+	 * @return a {@link DisposableServer}
 	 */
-	public final TcpServer bindAddress(String host) {
-		Objects.requireNonNull(host, "host");
-		return bootstrap(b -> b.localAddress(host, getPort(b)));
+	public final DisposableServer bindNow() {
+		return bindNow(Duration.ofSeconds(45));
 	}
+
+	/**
+	 * Start a Server in a blocking fashion, and wait for it to finish initializing. The
+	 * returned {@link DisposableServer} offers simple server API, including to {@link
+	 * DisposableServer#disposeNow()} shut it down in a blocking fashion.
+	 *
+	 * @param timeout max startup timeout
+	 *
+	 * @return a {@link DisposableServer}
+	 */
+	public final DisposableServer bindNow(Duration timeout) {
+		Objects.requireNonNull(timeout, "timeout");
+		return Objects.requireNonNull(bind().block(timeout), "aborted");
+	}
+
+	/**
+	 * Start a Server in a fully blocking fashion, not only waiting for it to initialize
+	 * but also blocking during the full lifecycle of the client/server. Since most
+	 * servers will be long-lived, this is more adapted to running a server out of a main
+	 * method, only allowing shutdown of the servers through sigkill.
+	 * <p>
+	 * Note that a {@link Runtime#addShutdownHook(Thread) JVM shutdown hook} is added by
+	 * this method in order to properly disconnect the client/server upon receiving a
+	 * sigkill signal.
+	 *
+	 * @param timeout a timeout for server shutdown
+	 * @param onStart an optional callback on server start
+	 */
+	public final void bindUntilJavaShutdown(Duration timeout, @Nullable Consumer<DisposableServer> onStart) {
+
+		Objects.requireNonNull(timeout, "timeout");
+		DisposableServer facade = bindNow();
+
+		Objects.requireNonNull(facade, "facade");
+
+		if (onStart != null) {
+			onStart.accept(facade);
+		}
+
+		Runtime.getRuntime()
+		       .addShutdownHook(new Thread(() -> facade.disposeNow(timeout)));
+
+		facade.onDispose()
+		      .block();
+	}
+
 
 	/**
 	 * Materialize a Bootstrap from the parent {@link TcpServer} chain to use with {@link
@@ -193,9 +245,21 @@ public abstract class TcpServer {
 	 *
 	 * @return a new {@link TcpServer}
 	 */
-	public final TcpServer doOnBound(Consumer<? super Connection> doOnBound) {
+	public final TcpServer doOnBound(Consumer<? super DisposableServer> doOnBound) {
 		Objects.requireNonNull(doOnBound, "doOnBind");
 		return new TcpServerLifecycle(this, null, doOnBound, null);
+	}
+
+	/**
+	 * Setup a callback called when a remote client is connected
+	 *
+	 * @param doOnConnection a consumer observing connected clients
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	public final TcpServer doOnConnection(Consumer<? super Connection> doOnConnection) {
+		Objects.requireNonNull(doOnConnection, "doOnConnection");
+		return doOnBound(s -> s.connections().subscribe(doOnConnection));
 	}
 
 	/**
@@ -206,9 +270,37 @@ public abstract class TcpServer {
 	 *
 	 * @return a new {@link TcpServer}
 	 */
-	public final TcpServer doOnUnbind(Consumer<? super Connection> doOnUnbind) {
+	public final TcpServer doOnUnbind(Consumer<? super DisposableServer> doOnUnbind) {
 		Objects.requireNonNull(doOnUnbind, "doOnUnbind");
 		return new TcpServerLifecycle(this, null, null, doOnUnbind);
+	}
+
+	/**
+	 * Attach an IO handler to react on connected client
+	 *
+	 * @param handler an IO handler that can dispose underlying connection when {@link
+	 * Publisher} terminates.
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	@SuppressWarnings("unchecked")
+	public final TcpServer handler(BiFunction<? super NettyInbound, ? super NettyOutbound, ? extends Publisher<Void>> handler) {
+		Objects.requireNonNull(handler, "handler");
+		return doOnConnection(c -> Mono.fromDirect(handler.apply((NettyInbound) c,
+				(NettyOutbound) c))
+		                               .subscribe(c.disposeSubscriber()));
+	}
+
+	/**
+	 * The host to which this client should connect.
+	 *
+	 * @param host The host to connect to.
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	public final TcpServer host(String host) {
+		Objects.requireNonNull(host, "host");
+		return bootstrap(b -> b.localAddress(host, getPort(b)));
 	}
 
 	/**
@@ -307,7 +399,20 @@ public abstract class TcpServer {
 	 * @return a new {@link TcpServer}
 	 */
 	public final TcpServer secure() {
-		return secure(sslProviderBuilder -> sslProviderBuilder.sslContext(TcpServerSecure.DEFAULT_SSL_CONTEXT));
+		return secure(TcpUtils.SSL_DEFAULT_SPEC);
+	}
+
+	/**
+	 * Apply an SSL configuration customization via the passed {@link SslContext}. with a
+	 * default value of {@literal 10} seconds handshake timeout unless the environment
+	 * property {@literal reactor.ipc.netty.sslHandshakeTimeout} is set.
+	 *
+	 * @param sslContext The context to set when configuring SSL
+	 *
+	 * @return a new {@link TcpServer}
+	 */
+	public final TcpServer secure(SslContext sslContext) {
+		return secure(sslProviderBuilder -> sslProviderBuilder.sslContext(sslContext));
 	}
 
 	/**
@@ -322,19 +427,6 @@ public abstract class TcpServer {
 	 */
 	public final TcpServer secure(Consumer<? super SslProvider.SslContextSpec> sslProviderBuilder) {
 		return new TcpServerSecure(this, sslProviderBuilder);
-	}
-
-	/**
-	 * Apply an SSL configuration customization via the passed {@link SslContext}.
-	 * with a default value of {@literal 10} seconds handshake timeout unless
-	 * the environment property {@literal reactor.ipc.netty.sslHandshakeTimeout} is set.
-	 *
-	 * @param sslContext The context to set when configuring SSL
-	 *
-	 * @return a new {@link TcpServer}
-	 */
-	public final TcpServer secure(SslContext sslContext) {
-		return secure(sslProviderBuilder -> sslProviderBuilder.sslContext(sslContext));
 	}
 
 	/**
@@ -380,7 +472,8 @@ public abstract class TcpServer {
 	 * @return he current {@link SslContext} if that {@link TcpServer} secured via SSL
 	 * transport or null
 	 */
-	public SslContext sslContext(){
+	@Nullable
+	public SslContext sslContext() {
 		return null;
 	}
 
@@ -448,4 +541,5 @@ public abstract class TcpServer {
 		}
 		return TcpUtils.DEFAULT_PORT;
 	}
+
 }

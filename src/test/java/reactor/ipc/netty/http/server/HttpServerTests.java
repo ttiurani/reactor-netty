@@ -99,7 +99,7 @@ public class HttpServerTests {
 	public void sendFileChunked() throws IOException, URISyntaxException {
 		Path largeFile = Paths.get(getClass().getResource("/largeFile.txt").toURI());
 		long fileSize = Files.size(largeFile);
-		assertSendFile(out -> out.sendFileChunked(largeFile, 0, fileSize));
+		assertSendFile(out -> out.sendFileChunked(largeFile));
 	}
 
 	@Test
@@ -111,7 +111,7 @@ public class HttpServerTests {
 		try (FileSystem zipFs = FileSystems.newFileSystem(path, null)) {
 			Path fromZipFile = zipFs.getPath("/largeFile.txt");
 			long fileSize = Files.size(fromZipFile);
-			assertSendFile(out -> out.sendFileChunked(fromZipFile, 0, fileSize));
+			assertSendFile(out -> out.sendFileChunked(fromZipFile));
 		}
 	}
 

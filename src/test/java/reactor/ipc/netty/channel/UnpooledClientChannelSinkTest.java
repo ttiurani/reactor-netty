@@ -27,21 +27,21 @@ import reactor.ipc.netty.NettyPipeline;
 import reactor.ipc.netty.options.ClientOptions;
 import reactor.ipc.netty.tcp.ProxyProvider.Proxy;
 
-public class ClientContextHandlerTest {
+public class UnpooledClientChannelSinkTest {
 
 	@Test
 	public void addProxyHandler() {
 		ClientOptions.Builder<?> builder = ClientOptions.builder();
 		EmbeddedChannel channel = new EmbeddedChannel();
 
-		ClientContextHandler.addProxyHandler(builder.build(), channel.pipeline(),
+		UnpooledClientChannelSink.addProxyHandler(builder.build(), channel.pipeline(),
 				new InetSocketAddress("localhost", 8080));
 		assertThat(channel.pipeline().get(NettyPipeline.ProxyHandler)).isNull();
 
 		builder.proxy(ops -> ops.type(Proxy.HTTP)
 		                        .host("proxy")
 		                        .port(8080));
-		ClientContextHandler.addProxyHandler(builder.build(), channel.pipeline(),
+		UnpooledClientChannelSink.addProxyHandler(builder.build(), channel.pipeline(),
 				new InetSocketAddress("localhost", 8080));
 		assertThat(channel.pipeline().get(NettyPipeline.ProxyHandler)).isNull();
 	}

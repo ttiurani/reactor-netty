@@ -19,7 +19,7 @@ import java.util.Objects;
 
 import io.netty.bootstrap.ServerBootstrap;
 import reactor.core.publisher.Mono;
-import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.DisposableServer;
 import reactor.ipc.netty.tcp.TcpServer;
 
 /**
@@ -39,7 +39,7 @@ abstract class HttpServerOperator extends HttpServer {
 	}
 
 	@Override
-	protected Mono<? extends Connection> bind(ServerBootstrap b) {
+	protected Mono<? extends DisposableServer> bind(ServerBootstrap b) {
 		return source.bind(b);
 	}
 }

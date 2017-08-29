@@ -23,7 +23,7 @@ import reactor.core.scheduler.Schedulers;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.channel.ChannelOperations;
-import reactor.ipc.netty.channel.ContextHandler;
+import reactor.ipc.netty.channel.ChannelSink;
 import reactor.ipc.netty.resources.LoopResources;
 
 /**
@@ -35,7 +35,7 @@ final class UdpClientBind extends UdpClient {
 
 	@Override
 	protected Mono<? extends Connection> bind(Bootstrap b) {
-		ChannelOperations.OnNew<?> ops = BootstrapHandlers.channelOperationFactory(b);
+		ChannelOperations.OnNew ops = BootstrapHandlers.channelOperationFactory(b);
 
 		//Default group and channel
 		if (b.config()
@@ -50,17 +50,18 @@ final class UdpClientBind extends UdpClient {
 
 		return Mono.create(sink -> {
 
-			ContextHandler<?> contextHandler = ContextHandler.newClientContext(sink, ops);
+			ChannelSink<?> channelSink = ChannelSink.newClientContext(sink, ops);
 
-			BootstrapHandlers.updateConfiguration(b, "init", contextHandler);
+			BootstrapHandlers.updateConfiguration(b, "init", channelSink);
 
-			contextHandler.setFuture(b.bind());
+			channelSink.setFuture(b.bind());
 		});
 	}
 
 	static final int           DEFAULT_UDP_THREAD_COUNT = Integer.parseInt(System.getProperty(
 			"reactor.udp.ioThreadCount",
 			"" + Schedulers.DEFAULT_POOL_SIZE));
+
 	static final LoopResources DEFAULT_UDP_LOOPS        =
 			LoopResources.create("udp", DEFAULT_UDP_THREAD_COUNT, true);
 }

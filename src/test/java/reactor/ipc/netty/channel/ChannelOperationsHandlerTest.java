@@ -26,6 +26,7 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.DisposableServer;
 import reactor.ipc.netty.FutureMono;
 import reactor.ipc.netty.http.client.HttpClient;
 import reactor.ipc.netty.http.client.HttpClientResponse;
@@ -36,19 +37,23 @@ public class ChannelOperationsHandlerTest {
 
 	@Test
 	public void publisherSenderOnCompleteFlushInProgress() {
-		Connection server =
-				HttpServer.create(0)
-				          .newHandler((req, res) ->
+		DisposableServer server =
+				HttpServer.create()
+				          .tcpConfiguration(tcp -> tcp.port(0))
+				          .handler((req, res) ->
 				                  req.receive()
 				                     .asString()
 				                     .doOnNext(System.err::println)
 				                     .then(res.status(200).sendHeaders().then()))
-				          .block(Duration.ofSeconds(30));
+				          .bindNow();
 
 		Flux<String> flux = Flux.range(1, 257).map(count -> count + "");
 		Mono<HttpClientResponse> client =
-				HttpClient.create(server.address().getPort())
-				          .post("/", req -> req.sendString(flux));
+				HttpClient.create("/")
+				          .tcpConfiguration(tcp -> tcp.port(server.port()))
+				          .post()
+				          .send((req, out) -> out.sendString(flux))
+				          .response();
 
 		StepVerifier.create(client)
 		            .expectNextMatches(res -> res.status().code() == 200)

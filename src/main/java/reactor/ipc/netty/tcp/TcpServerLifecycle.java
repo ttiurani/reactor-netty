@@ -21,20 +21,21 @@ import java.util.function.Consumer;
 import io.netty.bootstrap.ServerBootstrap;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.DisposableServer;
 
 /**
  * @author Stephane Maldini
  */
-final class TcpServerLifecycle extends TcpServerOperator implements Consumer<Connection> {
+final class TcpServerLifecycle extends TcpServerOperator implements Consumer<DisposableServer> {
 
 	final Consumer<? super ServerBootstrap> onBind;
-	final Consumer<? super Connection>      onBound;
-	final Consumer<? super Connection>      onUnbound;
+	final Consumer<? super DisposableServer>      onBound;
+	final Consumer<? super DisposableServer>      onUnbound;
 
 	TcpServerLifecycle(TcpServer server,
 			Consumer<? super ServerBootstrap> onBind,
-			Consumer<? super Connection> onBound,
-			Consumer<? super Connection> onUnbound) {
+			Consumer<? super DisposableServer> onBound,
+			Consumer<? super DisposableServer> onUnbound) {
 		super(server);
 		this.onBind = onBind;
 		this.onBound = onBound;
@@ -42,8 +43,8 @@ final class TcpServerLifecycle extends TcpServerOperator implements Consumer<Con
 	}
 
 	@Override
-	public Mono<? extends Connection> bind(ServerBootstrap b) {
-		Mono<? extends Connection> m = source.bind(b);
+	public Mono<? extends DisposableServer> bind(ServerBootstrap b) {
+		Mono<? extends DisposableServer> m = source.bind(b);
 
 		if (onBind != null) {
 			m = m.doOnSubscribe(s -> onBind.accept(b));
@@ -61,7 +62,7 @@ final class TcpServerLifecycle extends TcpServerOperator implements Consumer<Con
 	}
 
 	@Override
-	public void accept(Connection o) {
+	public void accept(DisposableServer o) {
 		onBound.accept(o);
 	}
 }

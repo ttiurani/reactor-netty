@@ -23,7 +23,6 @@ import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.cert.CertificateException;
@@ -51,6 +50,7 @@ import io.netty.util.CharsetUtil;
 import io.netty.util.ReferenceCountUtil;
 import org.junit.Test;
 import reactor.core.Exceptions;
+import reactor.ipc.netty.channel.ChannelOperations;
 import reactor.ipc.netty.channel.data.FileChunkedStrategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -60,8 +60,8 @@ public class NettyOutboundTest {
 	@Test
 	public void onWriteIdleReplaces() throws Exception {
 		EmbeddedChannel channel = new EmbeddedChannel();
-		Connection mockContext = () -> channel;
-		NettyOutbound outbound = () -> mockContext;
+		NettyOutbound outbound =
+				ChannelOperations.bind(channel, ConnectionEvents.emptyListener());
 
 		AtomicLong idle1 = new AtomicLong();
 		AtomicLong idle2 = new AtomicLong();
@@ -104,20 +104,18 @@ public class NettyOutboundTest {
 						messageClasses.add(msg.getClass());
 						ReferenceCountUtil.retain(msg);
 						out.add(msg);
+
 					}
 				});
-		Connection mockContext = () -> channel;
-		NettyOutbound outbound = new NettyOutbound() {
-			@Override
-			public Connection context() {
-				return mockContext;
-			}
 
+		NettyOutbound outbound =
+				new ChannelOperations<NettyInbound, NettyOutbound>(channel, ConnectionEvents.emptyListener()) {
 			@Override
 			public FileChunkedStrategy getFileChunkedStrategy() {
 				return FILE_CHUNKED_STRATEGY_1024_NOPIPELINE;
 			}
 		};
+
 		channel.writeOneOutbound(1);
 
 		outbound.sendFile(Paths.get(getClass().getResource("/largeFile.txt").toURI()))
@@ -172,18 +170,14 @@ public class NettyOutboundTest {
 					}
 				});
 
-		Connection mockContext = () -> channel;
-		NettyOutbound outbound = new NettyOutbound() {
-			@Override
-			public Connection context() {
-				return mockContext;
-			}
+		NettyOutbound outbound =
+				new ChannelOperations<NettyInbound, NettyOutbound>(channel, ConnectionEvents.emptyListener()) {
+					@Override
+					public FileChunkedStrategy getFileChunkedStrategy() {
+						return FILE_CHUNKED_STRATEGY_1024_NOPIPELINE;
+					}
+				};
 
-			@Override
-			public FileChunkedStrategy getFileChunkedStrategy() {
-				return FILE_CHUNKED_STRATEGY_1024_NOPIPELINE;
-			}
-		};
 		channel.writeOneOutbound(1);
 
 		try{
@@ -236,22 +230,19 @@ public class NettyOutboundTest {
 						out.add(msg);
 					}
 				});
-		Connection mockContext = () -> channel;
-		NettyOutbound outbound = new NettyOutbound() {
-			@Override
-			public Connection context() {
-				return mockContext;
-			}
 
-			@Override
-			public FileChunkedStrategy getFileChunkedStrategy() {
-				return FILE_CHUNKED_STRATEGY_1024_NOPIPELINE;
-			}
-		};
+		NettyOutbound outbound =
+				new ChannelOperations<NettyInbound, NettyOutbound>(channel, ConnectionEvents.emptyListener()) {
+					@Override
+					public FileChunkedStrategy getFileChunkedStrategy() {
+						return FILE_CHUNKED_STRATEGY_1024_NOPIPELINE;
+					}
+				};
+
 		Path path = Paths.get(getClass().getResource("/largeFile.txt").toURI());
 
 		channel.writeOneOutbound(1);
-		outbound.sendFileChunked(path, 0, Files.size(path))
+		outbound.sendFileChunked(path)
 		        .then().block();
 
 		assertThat(channel.inboundMessages()).isEmpty();

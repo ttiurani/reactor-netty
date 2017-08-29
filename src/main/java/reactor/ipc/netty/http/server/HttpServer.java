@@ -16,22 +16,23 @@
 
 package reactor.ipc.netty.http.server;
 
+import java.time.Duration;
 import java.util.Objects;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import javax.annotation.Nullable;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
-import io.netty.handler.logging.LogLevel;
-import io.netty.handler.logging.LoggingHandler;
 import org.reactivestreams.Publisher;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.ConnectionEvents;
+import reactor.ipc.netty.DisposableServer;
 import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.channel.ChannelOperations;
-import reactor.ipc.netty.channel.ContextHandler;
 import reactor.ipc.netty.tcp.TcpServer;
 
 /**
@@ -44,7 +45,7 @@ import reactor.ipc.netty.tcp.TcpServer;
  * <pre>
  * {@code
  * HttpServer.create()
- * .bindAddress("0.0.0.0")
+ * .host("0.0.0.0")
  * .tcpConfiguration(TcpServer::secure)
  * .handler((req, res) -> res.sendString(Flux.just("hello"))
  * .bind()
@@ -84,7 +85,7 @@ public abstract class HttpServer {
 	 *
 	 * @return a {@link Mono} of {@link Connection}
 	 */
-	public Mono<? extends Connection> bind() {
+	public final Mono<? extends DisposableServer> bind() {
 		ServerBootstrap b;
 		try{
 			b = tcpConfiguration().configure();
@@ -94,6 +95,63 @@ public abstract class HttpServer {
 			return Mono.error(t);
 		}
 		return bind(b);
+	}
+
+	/**
+	 * Start a Server in a blocking fashion, and wait for it to finish initializing. The
+	 * returned {@link DisposableServer} offers simple server API, including to {@link
+	 * DisposableServer#disposeNow()} shut it down in a blocking fashion.
+	 *
+	 * @return a {@link DisposableServer}
+	 */
+	public final DisposableServer bindNow() {
+		return bindNow(Duration.ofSeconds(45));
+	}
+
+
+	/**
+	 * Start a Server in a blocking fashion, and wait for it to finish initializing. The
+	 * returned {@link DisposableServer} offers simple server API, including to {@link
+	 * DisposableServer#disposeNow()} shut it down in a blocking fashion.
+	 *
+	 * @param timeout max startup timeout
+	 *
+	 * @return a {@link DisposableServer}
+	 */
+	public final DisposableServer bindNow(Duration timeout) {
+		Objects.requireNonNull(timeout, "timeout");
+		return Objects.requireNonNull(bind().block(timeout), "aborted");
+	}
+
+	/**
+	 * Start a Server in a fully blocking fashion, not only waiting for it to initialize
+	 * but also blocking during the full lifecycle of the client/server. Since most
+	 * servers will be long-lived, this is more adapted to running a server out of a main
+	 * method, only allowing shutdown of the servers through sigkill.
+	 * <p>
+	 * Note that a {@link Runtime#addShutdownHook(Thread) JVM shutdown hook} is added by
+	 * this method in order to properly disconnect the client/server upon receiving a
+	 * sigkill signal.
+	 *
+	 * @param timeout a timeout for server shutdown
+	 * @param onStart an optional callback on server start
+	 */
+	public final void bindUntilJavaShutdown(Duration timeout,
+			@Nullable Consumer<DisposableServer> onStart) {
+
+		Objects.requireNonNull(timeout, "timeout");
+		DisposableServer facade = bindNow();
+
+		Objects.requireNonNull(facade, "facade");
+
+		if (onStart != null) {
+			onStart.accept(facade);
+		}
+		Runtime.getRuntime()
+		       .addShutdownHook(new Thread(() -> facade.disposeNow(timeout)));
+
+		facade.onDispose()
+		      .block();
 	}
 
 	/**
@@ -124,56 +182,20 @@ public abstract class HttpServer {
 	}
 
 	/**
-	 * Setup a callback called when {@link io.netty.channel.ServerChannel} is about to
-	 * bind.
-	 *
-	 * @param doOnBind a consumer observing server start event
-	 *
-	 * @return a new {@link TcpServer}
-	 */
-	public final HttpServer doOnBind(Consumer<? super ServerBootstrap> doOnBind) {
-		return tcpConfiguration(tcp -> tcp.doOnBind(doOnBind));
-
-	}
-
-	/**
-	 * Setup a callback called when {@link io.netty.channel.ServerChannel} is about to
-	 * bind.
-	 *
-	 * @param doOnBound a consumer observing server started event
-	 *
-	 * @return a new {@link TcpServer}
-	 */
-	public final HttpServer doOnBound(Consumer<? super Connection> doOnBound) {
-		return tcpConfiguration(tcp -> tcp.doOnBound(doOnBound));
-	}
-
-	/**
-	 * Setup a callback called when {@link io.netty.channel.ServerChannel} is about to
-	 * bind.
-	 *
-	 * @param doOnUnbind a consumer observing server stop event
-	 *
-	 * @return a new {@link TcpServer}
-	 */
-	public final HttpServer doOnUnbind(Consumer<? super Connection> doOnUnbind) {
-		return tcpConfiguration(tcp -> tcp.doOnUnbind(doOnUnbind));
-	}
-
-	/**
 	 * Attach an IO handler to react on connected server
 	 *
 	 * @param handler an IO handler that can dispose underlying connection when {@link
-	 * Publisher} terminates.
+	 * Publisher} terminates. Only the first registered handler will subscribe to the
+	 * returned {@link Publisher} while other will immediately cancel given a same
+	 * {@link Connection}
 	 *
 	 * @return a new {@link HttpServer}
 	 */
 	@SuppressWarnings("unchecked")
 	public final HttpServer handler(BiFunction<? super HttpServerRequest, ? super HttpServerResponse, ? extends Publisher<Void>> handler) {
 		Objects.requireNonNull(handler, "handler");
-		return doOnBound(c -> Mono.fromDirect(handler.apply((HttpServerRequest) c,
-				(HttpServerResponse) c))
-		                         .subscribe(c.disposeSubscriber()));
+		return tcpConfiguration(tcp -> tcp.handler((inp, out) -> handler.apply((HttpServerRequest) inp,
+				(HttpServerResponse) out)));
 	}
 
 	/**
@@ -212,43 +234,6 @@ public abstract class HttpServer {
 		routesBuilder.accept(routes);
 		return handler(routes);
 	}
-	/**
-	 * Apply a wire logger configuration using {@link TcpServer} category
-	 *
-	 * @return a new {@link TcpServer}
-	 */
-	public final HttpServer wiretap() {
-		return tcpConfiguration(tcp -> tcp.bootstrap(b -> BootstrapHandlers.updateLogSupport(
-				b,
-				LOGGING_HANDLER)));
-	}
-
-	/**
-	 * Apply a wire logger configuration
-	 *
-	 * @param category the logger category
-	 *
-	 * @return a new {@link TcpServer}
-	 */
-	public final HttpServer wiretap(String category) {
-		return wiretap(category, LogLevel.DEBUG);
-	}
-
-	/**
-	 * Apply a wire logger configuration
-	 *
-	 * @param category the logger category
-	 * @param level the logger level
-	 *
-	 * @return a new {@link TcpServer}
-	 */
-	public final HttpServer wiretap(String category, LogLevel level) {
-		Objects.requireNonNull(category, "category");
-		Objects.requireNonNull(level, "level");
-		return tcpConfiguration(tcp -> tcp.bootstrap(b -> BootstrapHandlers.updateLogSupport(
-				b,
-				new LoggingHandler(category, level))));
-	}
 
 	/**
 	 * Bind the {@link HttpServer} and return a {@link Mono} of {@link Connection}
@@ -257,7 +242,7 @@ public abstract class HttpServer {
 	 *
 	 * @return a {@link Mono} of {@link Connection}
 	 */
-	protected abstract Mono<? extends Connection> bind(ServerBootstrap b);
+	protected abstract Mono<? extends DisposableServer> bind(ServerBootstrap b);
 
 	/**
 	 * Materialize a TcpServer from the parent {@link HttpServer} chain to use with
@@ -269,30 +254,31 @@ public abstract class HttpServer {
 		return DEFAULT_TCP_SERVER;
 	}
 
-	static final LoggingHandler LOGGING_HANDLER = new LoggingHandler(HttpServer.class);
-
-	static final ChannelOperations.OnNew<?> HTTP_OPS = new ChannelOperations.OnNew<Channel>() {
+	static final ChannelOperations.OnNew HTTP_OPS = new ChannelOperations.OnNew() {
 		@Override
 		public ChannelOperations<?, ?> create(Channel c,
-				ContextHandler<?> contextHandler,
+				ConnectionEvents listener,
 				Object msg) {
-			return HttpServerOperations.bindHttp(c, contextHandler, msg);
+			return HttpServerOperations.bindHttp(c, listener, msg);
 		}
 
 		@Override
-		public boolean createOnChannelActive() {
+		public boolean createOnConnected() {
 			return false;
 		}
-	}
+	};
 
 	static final Function<ServerBootstrap, ServerBootstrap> HTTP_OPS_CONF = b -> {
 		BootstrapHandlers.channelOperationFactory(b, HTTP_OPS);
 		return b;
 	};
 
+	static final int DEFAULT_PORT =
+			System.getenv("PORT") != null ? Integer.parseInt(System.getenv("PORT")) : 8080;
+
 	static final TcpServer DEFAULT_TCP_SERVER = TcpServer.create()
-	                                                     .bindAddress("0.0.0.0")
-	                                                     .port(80)
+	                                                     .host("0.0.0.0")
+	                                                     .port(DEFAULT_PORT)
 	                                                     .bootstrap(HTTP_OPS_CONF);
 
 	static final Function<TcpServer, TcpServer> COMPRESS_ATTR_CONFIG =

@@ -114,8 +114,10 @@ public class TcpClientTests {
 	public void testTcpClient() throws InterruptedException {
 		final CountDownLatch latch = new CountDownLatch(1);
 
-		Connection client = TcpClient.create("localhost", echoServerPort)
-		                             .newHandler((in, out) -> {
+		Connection client = TcpClient.create()
+		                             .host("localhost")
+		                             .port(echoServerPort)
+		                             .handler((in, out) -> {
 			                               in.receive()
 			                                 .log("conn")
 			                                 .subscribe(s -> latch.countDown());
@@ -123,7 +125,7 @@ public class TcpClientTests {
 			                               return out.sendString(Flux.just("Hello World!"))
 			                                  .neverComplete();
 		                               })
-		                             .block(Duration.ofSeconds(30));
+		                             .connectNow();
 
 		latch.await(30, TimeUnit.SECONDS);
 

@@ -19,15 +19,15 @@ package reactor.ipc.netty.udp;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
-import java.util.function.BiFunction;
 
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.socket.DatagramChannel;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Mono;
+import reactor.ipc.netty.ConnectionEvents;
 import reactor.ipc.netty.FutureMono;
 import reactor.ipc.netty.channel.ChannelOperations;
-import reactor.ipc.netty.channel.ContextHandler;
+import reactor.ipc.netty.channel.ChannelSink;
 import reactor.util.Logger;
 import reactor.util.Loggers;
 
@@ -38,14 +38,14 @@ final class UdpOperations extends ChannelOperations<UdpInbound, UdpOutbound>
 		implements UdpInbound, UdpOutbound {
 
 	static UdpOperations bind(DatagramChannel channel,
-			ContextHandler<?> context) {
-		return new UdpOperations(channel, context);
+			ConnectionEvents listener) {
+		return new UdpOperations(channel, listener);
 	}
 
 	final DatagramChannel  datagramChannel;
 
-	UdpOperations(DatagramChannel channel, ContextHandler<?> context) {
-		super(channel, context);
+	UdpOperations(DatagramChannel channel, ConnectionEvents listener) {
+		super(channel, listener);
 		this.datagramChannel = channel;
 	}
 

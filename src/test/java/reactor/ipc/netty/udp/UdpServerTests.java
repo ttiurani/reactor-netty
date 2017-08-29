@@ -80,8 +80,9 @@ public class UdpServerTests {
 		final int port = SocketUtils.findAvailableUdpPort();
 		final CountDownLatch latch = new CountDownLatch(4);
 
-		final Connection server = UdpClient.create(port)
-		                                   .newHandler((in, out) -> {
+		final Connection server = UdpClient.create()
+		                                   .port(port)
+		                                   .h((in, out) -> {
 			                                   in.receive()
 			                                     .asByteArray()
 			                                     .log()

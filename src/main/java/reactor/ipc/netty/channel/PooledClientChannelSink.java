@@ -32,29 +32,28 @@ import reactor.util.Logger;
 import reactor.util.Loggers;
 
 /**
- * @param <CHANNEL> the channel type
  *
  * @author Stephane Maldini
  */
-final class PooledClientContextHandler<CHANNEL extends Channel>
-		extends ContextHandler<CHANNEL>
-		implements GenericFutureListener<Future<CHANNEL>> {
+final class PooledClientChannelSink
+		extends ChannelSink<Connection>
+		implements GenericFutureListener<Future<Channel>> {
 
-	static final Logger log = Loggers.getLogger(PooledClientContextHandler.class);
+	static final Logger log = Loggers.getLogger(PooledClientChannelSink.class);
 
 	final ChannelPool           pool;
 	final DirectProcessor<Void> onReleaseEmitter;
 
-	volatile Future<CHANNEL> future;
+	volatile Future<Channel> future;
 
-	static final AtomicReferenceFieldUpdater<PooledClientContextHandler, Future> FUTURE =
-			AtomicReferenceFieldUpdater.newUpdater(PooledClientContextHandler.class,
+	static final AtomicReferenceFieldUpdater<PooledClientChannelSink, Future> FUTURE =
+			AtomicReferenceFieldUpdater.newUpdater(PooledClientChannelSink.class,
 					Future.class,
 					"future");
 
 	static final Future DISPOSED = new SucceededFuture<>(null, null);
 
-	PooledClientContextHandler(ChannelOperations.OnNew<CHANNEL> channelOpFactory,
+	PooledClientChannelSink(ChannelOperations.OnNew channelOpFactory,
 			MonoSink<Connection> sink,
 			ChannelPool pool) {
 		super(channelOpFactory, sink);
@@ -63,7 +62,7 @@ final class PooledClientContextHandler<CHANNEL extends Channel>
 	}
 
 	@Override
-	public void fireContextActive(Connection context) {
+	public void fireConnectionActive(Connection context) {
 		if (!fired) {
 			fired = true;
 			if(context != null) {
@@ -80,7 +79,7 @@ final class PooledClientContextHandler<CHANNEL extends Channel>
 	public void setFuture(Future<?> future) {
 		Objects.requireNonNull(future, "future");
 
-		Future<CHANNEL> f;
+		Future<Channel> f;
 		for (; ; ) {
 			f = this.future;
 
@@ -100,17 +99,11 @@ final class PooledClientContextHandler<CHANNEL extends Channel>
 			log.debug("Acquiring existing channel from pool: {} {}", future, pool
 					.toString());
 		}
-		((Future<CHANNEL>) future).addListener(this);
+		((Future<Channel>) future).addListener(this);
 	}
 
 	@Override
-	@SuppressWarnings("unchecked")
-	protected void terminateChannel(Channel channel) {
-		release((CHANNEL) channel);
-	}
-
-	@Override
-	public void operationComplete(Future<CHANNEL> future) throws Exception {
+	public void operationComplete(Future<Channel> future) throws Exception {
 		if (future.isCancelled()) {
 			if (log.isDebugEnabled()) {
 				log.debug("Cancelled {}", future.toString());
@@ -132,16 +125,16 @@ final class PooledClientContextHandler<CHANNEL extends Channel>
 
 		if (!future.isSuccess()) {
 			if (future.cause() != null) {
-				fireContextError(future.cause());
+				fireConnectionError(future.cause());
 			}
 			else {
-				fireContextError(new AbortedException("error while acquiring connection"));
+				fireConnectionError(new AbortedException("error while acquiring connection"));
 			}
 			return;
 		}
 
 
-		CHANNEL c = future.get();
+		Channel c = future.get();
 
 		if (c.eventLoop()
 		     .inEventLoop()) {
@@ -159,7 +152,7 @@ final class PooledClientContextHandler<CHANNEL extends Channel>
 	}
 
 	@SuppressWarnings("unchecked")
-	final void connectOrAcquire(CHANNEL c) {
+	final void connectOrAcquire(Channel c) {
 		if (DISPOSED == this.future) {
 			if (log.isDebugEnabled()) {
 				log.debug("Dropping acquisition {} because of {}",
@@ -197,7 +190,7 @@ final class PooledClientContextHandler<CHANNEL extends Channel>
 	@Override
 	@SuppressWarnings("unchecked")
 	public void dispose() {
-		Future<CHANNEL> f = FUTURE.getAndSet(this, DISPOSED);
+		Future<Channel> f = FUTURE.getAndSet(this, DISPOSED);
 		if (f == null || f == DISPOSED) {
 			return;
 		}
@@ -206,7 +199,7 @@ final class PooledClientContextHandler<CHANNEL extends Channel>
 		}
 
 		try {
-			CHANNEL c = f.get();
+			Channel c = f.get();
 
 			if (!c.eventLoop()
 			      .inEventLoop()) {
@@ -225,7 +218,7 @@ final class PooledClientContextHandler<CHANNEL extends Channel>
 		}
 	}
 
-	final void disposeOperationThenRelease(CHANNEL c){
+	final void disposeOperationThenRelease(Channel c){
 		ChannelOperations<?, ?> ops = ChannelOperations.get(c);
 		//defer to operation dispose if present
 		if (ops != null) {
@@ -236,7 +229,7 @@ final class PooledClientContextHandler<CHANNEL extends Channel>
 		release(c);
 	}
 
-	final void release(CHANNEL c) {
+	final void release(Channel c) {
 		if (log.isDebugEnabled()) {
 			log.debug("Releasing channel: {}", c.toString());
 		}

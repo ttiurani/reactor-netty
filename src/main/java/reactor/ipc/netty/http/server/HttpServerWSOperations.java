@@ -18,6 +18,7 @@ package reactor.ipc.netty.http.server;
 
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -33,6 +34,7 @@ import io.netty.handler.codec.http.websocketx.PongWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketServerHandshaker;
 import io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory;
 import io.netty.util.ReferenceCountUtil;
+import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyPipeline;
 import reactor.ipc.netty.http.HttpOperations;
 import reactor.ipc.netty.http.websocket.WebsocketInbound;
@@ -144,6 +146,12 @@ final class HttpServerWSOperations extends HttpServerOperations
 			}
 			return;
 		}
+	}
+
+	@Override
+	public HttpServerWSOperations withConnection(Consumer<? super Connection> contextCallback) {
+		super.withConnection(contextCallback);
+		return this;
 	}
 
 	@Override

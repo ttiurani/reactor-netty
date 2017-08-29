@@ -44,6 +44,7 @@ import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Operators;
+import reactor.ipc.netty.ConnectionEvents;
 import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.NettyPipeline;
 import reactor.util.Logger;
@@ -62,7 +63,7 @@ final class ChannelOperationsHandler extends ChannelDuplexHandler
 	final PublisherSender                inner;
 	final BiConsumer<?, ? super ByteBuf> encoder;
 	final int                            prefetch;
-	final ContextHandler<?>              originContext;
+	final ConnectionEvents               listener;
 
 	/**
 	 * Cast the supplied queue (SpscLinkedArrayQueue) to use its atomic dual-insert
@@ -73,8 +74,7 @@ final class ChannelOperationsHandler extends ChannelDuplexHandler
 	ChannelHandlerContext               ctx;
 	boolean                             flushOnEach;
 
-	long                                pendingBytes;
-	ContextHandler<?>                   lastContext;
+	long           pendingBytes;
 
 	private Unsafe                      unsafe;
 
@@ -83,20 +83,16 @@ final class ChannelOperationsHandler extends ChannelDuplexHandler
 	volatile int     wip;
 
 	@SuppressWarnings("unchecked")
-	ChannelOperationsHandler(ContextHandler<?> contextHandler) {
+	ChannelOperationsHandler(ConnectionEvents listener) {
 		this.inner = new PublisherSender(this);
 		this.prefetch = 32;
 		this.encoder = NOOP_ENCODER;
-		this.lastContext = null;
-		this.originContext = contextHandler; // only set if parent context is closable,
-		// pool will usually fetch context via lastContext()
+		this.listener = Objects.requireNonNull(listener, "listener");
 	}
 
 	@Override
 	public void channelActive(ChannelHandlerContext ctx) throws Exception {
-		if(originContext.channelOpFactory.createOnChannelActive()) {
-			originContext.createOperations(ctx.channel(), null);
-		}
+		listener.onSetup(ctx.channel(), null);
 	}
 
 	@Override
@@ -107,10 +103,7 @@ final class ChannelOperationsHandler extends ChannelDuplexHandler
 				ops.onHandlerTerminate();
 			}
 			else {
-				if (lastContext != null) {
-					lastContext.terminateChannel(ctx.channel());
-					lastContext.fireContextError(new AbortedException());
-				}
+				listener.onDispose(ctx.channel());
 			}
 		}
 		catch (Throwable err) {
@@ -169,10 +162,7 @@ final class ChannelOperationsHandler extends ChannelDuplexHandler
 			ops.onInboundError(err);
 		}
 		else {
-			if (lastContext != null) {
-				lastContext.terminateChannel(ctx.channel());
-				lastContext.fireContextError(err);
-			}
+			listener.onError(ctx.channel(), err);
 		}
 	}
 
@@ -205,18 +195,7 @@ final class ChannelOperationsHandler extends ChannelDuplexHandler
 			log.trace("{} End of the pipeline, User event {}", ctx.channel(), evt);
 		}
 		if (evt == NettyPipeline.handlerTerminatedEvent()) {
-			ContextHandler<?> c = lastContext;
-			if (c == null){
-				if (log.isDebugEnabled()){
-					log.debug("{} No context to dispose", ctx.channel());
-				}
-				return;
-			}
-			if (log.isDebugEnabled()){
-				log.debug("{} Disposing context {}", ctx.channel(), c);
-			}
-			lastContext = null;
-			c.terminateChannel(ctx.channel());
+			listener.onDispose(ctx.channel());
 			return;
 		}
 		if (evt instanceof NettyPipeline.SendOptionsChangeEvent) {

@@ -41,6 +41,7 @@ import io.netty.handler.stream.ChunkedInput;
 import io.netty.handler.stream.ChunkedNioFile;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Mono;
+import reactor.ipc.netty.ConnectionEvents;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.FutureMono;
 import reactor.ipc.netty.NettyInbound;
@@ -48,7 +49,6 @@ import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.NettyPipeline;
 import reactor.ipc.netty.channel.AbortedException;
 import reactor.ipc.netty.channel.ChannelOperations;
-import reactor.ipc.netty.channel.ContextHandler;
 import reactor.ipc.netty.channel.data.AbstractFileChunkedStrategy;
 import reactor.ipc.netty.channel.data.FileChunkedStrategy;
 
@@ -74,8 +74,8 @@ public abstract class HttpOperations<INBOUND extends NettyInbound, OUTBOUND exte
 	}
 
 	protected HttpOperations(Channel ioChannel,
-			ContextHandler<?> context) {
-		super(ioChannel, context);
+			ConnectionEvents listener) {
+		super(ioChannel, listener);
 		//reset channel to manual read if re-used
 		ioChannel.config().setAutoRead(false);
 	}
@@ -85,7 +85,7 @@ public abstract class HttpOperations<INBOUND extends NettyInbound, OUTBOUND exte
 	 *
 	 * @return true if headers have been sent
 	 */
-	public final boolean hasSentHeaders() {
+	public final boolean isSent() {
 		return statusAndHeadersSent != READY;
 	}
 
@@ -156,7 +156,7 @@ public abstract class HttpOperations<INBOUND extends NettyInbound, OUTBOUND exte
 	public final NettyOutbound sendFile(Path file, long position, long count) {
 		Objects.requireNonNull(file);
 
-		if (hasSentHeaders()) {
+		if (isSent()) {
 			return super.sendFile(file, position, count);
 		}
 

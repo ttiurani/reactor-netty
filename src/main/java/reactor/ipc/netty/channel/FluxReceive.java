@@ -159,13 +159,10 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 				if (d && getPending() == 0) {
 					Throwable ex = inboundError;
 					if (ex != null) {
-						parent.context.fireContextError(ex);
-					}
-					else if(parent.shouldEmitEmptyContext()){
-						parent.context.fireContextActive(null);
+						parent.listener.onError(channel, ex);
 					}
 					else {
-						parent.context.fireContextActive(parent);
+						parent.listener.onSetup(channel, null);
 					}
 					return false;
 				}
@@ -347,7 +344,7 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 			channel.close();
 		}
 		if (receiverFastpath && receiver != null) {
-			parent.context.fireContextError(err);
+			parent.listener.onError(channel, err);
 			receiver.onError(err);
 			return true;
 		}
@@ -363,7 +360,7 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 		}
 		Throwable ex = inboundError;
 		if (ex != null) {
-			parent.context.fireContextError(ex);
+			parent.listener.onError(channel, ex);
 			a.onError(ex);
 		}
 		else {

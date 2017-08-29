@@ -24,6 +24,7 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpMethod;
@@ -32,7 +33,10 @@ import io.netty.util.AsciiString;
 import org.reactivestreams.Publisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.ipc.netty.ByteBufFlux;
+import reactor.ipc.netty.ByteBufMono;
 import reactor.ipc.netty.NettyInbound;
 import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.channel.AbortedException;
@@ -41,7 +45,7 @@ import reactor.ipc.netty.channel.AbortedException;
  * @author Stephane Maldini
  */
 final class MonoHttpClientResponse extends Mono<HttpClientResponse> implements
-                                                                    HttpClient.RequestContent {
+                                                                    HttpClient.RequestSender {
 
 	final HttpClient                                                     parent;
 	final URI                                                            startURI;
@@ -63,15 +67,60 @@ final class MonoHttpClientResponse extends Mono<HttpClientResponse> implements
 	}
 
 	@Override
+	public HttpClient.RequestSender uri(String uri) {
+		return null;
+	}
+
+	@Override
+	public HttpClient.RequestSender uri(Mono<String> uri) {
+		return null;
+	}
+
+	@Override
+	public Mono<HttpClientResponse> response() {
+		return null;
+	}
+
+	@Override
+	public <V> Flux<V> response(BiFunction<? super HttpClientResponse, ? super ByteBufFlux, ? extends Publisher<? extends V>> receiver) {
+		return null;
+	}
+
+	@Override
+	public ByteBufFlux responseContent() {
+		return null;
+	}
+
+	@Override
+	public <V> Mono<V> responseSingle(BiFunction<? super HttpClientResponse, ? super ByteBufMono, ? extends Mono<? extends V>> receiver) {
+		return null;
+	}
+
+	@Override
+	public HttpClient.ResponseReceiver<?> send(Publisher<? extends ByteBuf> body) {
+		return null;
+	}
+
+	@Override
+	public HttpClient.ResponseReceiver<?> send(BiFunction<? super HttpClientRequest, ? super NettyOutbound, ? extends NettyOutbound> sender) {
+		return null;
+	}
+
+	@Override
+	public HttpClient.ResponseReceiver<?> sendForm(Consumer<HttpClientForm> formCallback) {
+		return null;
+	}
+
+	@Override
 	@SuppressWarnings("unchecked")
 	public void subscribe(final CoreSubscriber<? super HttpClientResponse> subscriber) {
 		ReconnectableBridge bridge = new ReconnectableBridge();
 		bridge.activeURI = startURI;
 
-		Mono.defer(() -> parent.connect()client.newHandler(new HttpClientHandler(this,
+		Mono.defer(() -> client.newHandler(new HttpClientHandler(this,
 						bridge),
 				parent.options.getRemoteAddress(bridge.activeURI),
-				HttpClientUri.isSecure(bridge.activeURI),
+				HttpClientBaseUrl.isSecure(bridge.activeURI),
 				bridge))
 		    .retry(bridge)
 		    .cast(HttpClientResponse.class)

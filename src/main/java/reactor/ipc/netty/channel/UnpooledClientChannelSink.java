@@ -31,18 +31,16 @@ import reactor.util.Logger;
 import reactor.util.Loggers;
 
 /**
- * @param <CHANNEL> the channel type
- *
  * @author Stephane Maldini
  */
-abstract class CloseableContextHandler<CHANNEL extends Channel>
-		extends ContextHandler<CHANNEL> implements ChannelFutureListener {
+final class UnpooledClientChannelSink extends ChannelSink<Connection>
+		implements ChannelFutureListener {
 
-	static final Logger log = Loggers.getLogger(CloseableContextHandler.class);
+	static final Logger log = Loggers.getLogger(UnpooledClientChannelSink.class);
 
 	ChannelFuture f;
 
-	CloseableContextHandler(ChannelOperations.OnNew<CHANNEL> channelOpFactory,
+	UnpooledClientChannelSink(ChannelOperations.OnNew channelOpFactory,
 			MonoSink<Connection> sink) {
 		super(channelOpFactory, sink);
 	}
@@ -90,7 +88,7 @@ abstract class CloseableContextHandler<CHANNEL extends Channel>
 				operationComplete((ChannelFuture) future);
 			}
 			catch (Exception e){
-				fireContextError(e);
+				fireConnectionError(e);
 			}
 			return;
 		}
@@ -105,11 +103,25 @@ abstract class CloseableContextHandler<CHANNEL extends Channel>
 		if (f.channel()
 		     .isActive()) {
 
-				f.channel()
-				 .close();
+			f.channel()
+			 .close();
 		}
 		else if (!f.isDone()) {
 			f.cancel(true);
 		}
 	}
+
+	@Override
+	public final void fireConnectionActive(Connection context) {
+		if (!fired) {
+			fired = true;
+			if (context != null) {
+				sink.success(context);
+			}
+			else {
+				sink.success();
+			}
+		}
+	}
+
 }

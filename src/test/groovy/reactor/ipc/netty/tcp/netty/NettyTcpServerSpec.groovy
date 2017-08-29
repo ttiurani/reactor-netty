@@ -83,35 +83,40 @@ class NettyTcpServerSpec extends Specification {
   def "flush every 5 elems with manual decoding"() {
 	when: "the client/server are prepared"
 	def latch = new CountDownLatch(10)
-	def server = TcpServer.create().newHandler { i, o ->
-	  i.context().addHandlerLast(new JsonObjectDecoder())
-	  i.receive()
-			  .asString()
-			  .log('serve')
-			  .map { bb -> m.readValue(bb, Pojo[]) }
-			  .concatMap { d -> Flux.fromArray(d) }
-			  .window(5)
-			  .concatMap { w -> o.send(w.collectList().map(jsonEncoder)) }
-	}.block(Duration.ofSeconds(30))
+	def server = TcpServer.create()
+			.doOnConnection { c -> c.addHandlerLast(new JsonObjectDecoder()) }
+			.handler { i, o ->
+				i.receive()
+				  .asString()
+				  .log('serve')
+				  .map { bb -> m.readValue(bb, Pojo[]) }
+				  .concatMap { d -> Flux.fromArray(d) }
+				  .window(5)
+				  .concatMap { w -> o.send(w.collectList().map(jsonEncoder)) }
+			}
+			.bind()
+			.block(Duration.ofSeconds(30))
 
-	def client = TcpClient.create(server.address().port)
-	client.newHandler { i, o ->
-	  i.context().addHandlerLast(new JsonObjectDecoder())
+	TcpClient.create()
+		.port(server.address().port)
+		.doOnConnected { c -> c.addHandlerLast(new JsonObjectDecoder()) }
+		.handler{ i, o ->
+			i.receive()
+			.asString()
+			.map { bb -> m.readValue(bb, Pojo[]) }
+			.concatMap { d -> Flux.fromArray(d) }
+			.log('receive')
+			.subscribe { latch.countDown() }
 
-	  i.receive()
-			  .asString()
-			  .map { bb -> m.readValue(bb, Pojo[]) }
-			  .concatMap { d -> Flux.fromArray(d) }
-			  .log('receive')
-			  .subscribe { latch.countDown() }
-
-	  o.send(Flux.range(1, 10)
-			  .map { new Pojo(name: 'test' + it) }
-			  .log('send')
-			  .collectList()
-			  .map(jsonEncoder))
-	    .neverComplete()
-	}.block(Duration.ofSeconds(30))
+			o.send(Flux.range(1, 10)
+						.map { new Pojo(name: 'test' + it) }
+						.log('send')
+						.collectList()
+						.map(jsonEncoder))
+						.neverComplete()
+		}
+		.connect()
+		.block(Duration.ofSeconds(30))
 
 	then: "the client/server were started"
 	latch.await(30, TimeUnit.SECONDS)
@@ -132,17 +137,17 @@ class NettyTcpServerSpec extends Specification {
 			  .asString()
 			  .map { bb -> m.readValue(bb, Pojo[]) }
 			  .map { d ->
-				  Flux.fromArray(d)
-						  .doOnNext {
-							  if (j++ < 2) {
-								throw new Exception("test")
-							  }
-							}
-						  .retry(2)
-						  .collectList()
-						  .map(jsonEncoder)
-				}
-	  		  .doOnComplete { println 'wow ' + it }
+		Flux.fromArray(d)
+				.doOnNext {
+		  if (j++ < 2) {
+			throw new Exception("test")
+		  }
+		}
+		.retry(2)
+				.collectList()
+				.map(jsonEncoder)
+	  }
+	  .doOnComplete { println 'wow ' + it }
 			  .log('flatmap-retry'))
 	}.block(Duration.ofSeconds(30))
 

@@ -67,18 +67,12 @@ public interface HttpServerResponse extends NettyOutbound, HttpInfos {
 	 */
 	HttpServerResponse chunkedTransfer(boolean chunked);
 
-	@Override
-	default HttpServerResponse context(Consumer<Connection> contextCallback){
-		contextCallback.accept(context());
-		return this;
-	}
-
 	/**
 	 * Return  true if headers and status have been sent to the client
 	 *
 	 * @return true if headers and status have been sent to the client
 	 */
-	boolean hasSentHeaders();
+	boolean isSent();
 
 	/**
 	 * Set an outbound header, replacing any pre-existing value.
@@ -210,5 +204,8 @@ public interface HttpServerResponse extends NettyOutbound, HttpInfos {
 		return status(HttpResponseStatus.valueOf(status));
 	}
 
+
+	@Override
+	HttpServerResponse withConnection(Consumer<? super Connection> contextCallback);
 
 }

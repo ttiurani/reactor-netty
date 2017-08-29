@@ -60,7 +60,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.WorkQueueProcessor;
 import reactor.core.scheduler.Schedulers;
-import reactor.ipc.netty.BlockingConnection;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyInbound;
 import reactor.ipc.netty.NettyOutbound;
@@ -461,7 +460,7 @@ public class TcpServerTests {
 		Path largeFile = Paths.get(getClass().getResource("/largeFile.txt").toURI());
 		long fileSize = Files.size(largeFile);
 
-		assertSendFile(out -> out.sendFileChunked(largeFile, 0, fileSize));
+		assertSendFile(out -> out.sendFileChunked(largeFile));
 	}
 
 	@Test
@@ -474,7 +473,7 @@ public class TcpServerTests {
 		try (FileSystem zipFs = FileSystems.newFileSystem(path, null)) {
 			Path fromZipFile = zipFs.getPath("/largeFile.txt");
 			long fileSize = Files.size(fromZipFile);
-			assertSendFile(out -> out.sendFileChunked(fromZipFile, 0, fileSize));
+			assertSendFile(out -> out.sendFileChunked(fromZipFile));
 		}
 	}
 
@@ -561,7 +560,7 @@ public class TcpServerTests {
 
 	@Test(timeout = 2000)
 	public void startAndAwait() throws InterruptedException {
-		AtomicReference<BlockingConnection> bnc = new AtomicReference<>();
+		AtomicReference<BlockingServer> bnc = new AtomicReference<>();
 		CountDownLatch startLatch = new CountDownLatch(1);
 
 		Thread t = new Thread(() -> TcpServer.create()

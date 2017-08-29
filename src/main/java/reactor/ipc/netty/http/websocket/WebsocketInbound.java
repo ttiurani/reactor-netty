@@ -16,9 +16,12 @@
 
 package reactor.ipc.netty.http.websocket;
 
+import java.util.function.Consumer;
+
 import io.netty.handler.codec.http.websocketx.WebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketFrameAggregator;
 import reactor.core.publisher.Flux;
+import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyInbound;
 
 /**
@@ -59,8 +62,7 @@ public interface WebsocketInbound extends NettyInbound {
 	 * @return this inbound
 	 */
 	default WebsocketInbound aggregateFrames(int maxContentLength) {
-		context().addHandlerLast(new WebSocketFrameAggregator(maxContentLength));
-		return this;
+		return withConnection(c -> c.addHandlerLast(new WebSocketFrameAggregator(maxContentLength)));
 	}
 
 	/**
@@ -69,4 +71,7 @@ public interface WebsocketInbound extends NettyInbound {
 	default Flux<WebSocketFrame> receiveFrames() {
 		return receiveObject().ofType(WebSocketFrame.class);
 	}
+
+	@Override
+	WebsocketInbound withConnection(Consumer<? super Connection> onConnection);
 }

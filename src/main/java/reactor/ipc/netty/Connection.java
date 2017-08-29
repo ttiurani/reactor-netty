@@ -15,19 +15,9 @@
  */
 package reactor.ipc.netty;
 
-import java.net.InetSocketAddress;
-
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelOutboundHandler;
-import io.netty.channel.socket.ServerSocketChannel;
-import io.netty.channel.socket.SocketChannel;
-import org.reactivestreams.Subscription;
-import reactor.core.CoreSubscriber;
-import reactor.core.Disposable;
-import reactor.core.publisher.BaseSubscriber;
-import reactor.core.publisher.Mono;
-import reactor.core.publisher.SignalType;
 
 /**
  * Hold contextual information for the underlying {@link Channel}
@@ -36,7 +26,7 @@ import reactor.core.publisher.SignalType;
  * @since 0.6
  */
 @FunctionalInterface
-public interface Connection extends Disposable {
+public interface Connection extends DisposableChannel {
 
 	/**
 	 * Return false if it will force a close on terminal protocol events thus defeating
@@ -176,66 +166,6 @@ public interface Connection extends Disposable {
 	}
 
 	/**
-	 * Return remote address if remote channel {@link Connection} otherwise local
-	 * address if server selector channel.
-	 *
-	 * @return remote or local {@link InetSocketAddress}
-	 */
-	default InetSocketAddress address(){
-		Channel c = channel();
-		if (c instanceof SocketChannel) {
-			return ((SocketChannel) c).remoteAddress();
-		}
-		if (c instanceof ServerSocketChannel) {
-			return ((ServerSocketChannel) c).localAddress();
-		}
-		throw new IllegalStateException("Does not have an InetSocketAddress");
-	}
-
-	/**
-	 * Return the underlying {@link Channel}. Direct interaction might be considered
-	 * insecure if that affects the
-	 * underlying IO processing such as read, write or close or state such as pipeline
-	 * handler addition/removal.
-	 *
-	 * @return the underlying {@link Channel}
-	 */
-	Channel channel();
-
-	/**
-	 * Release or close the underlying {@link Channel}
-	 */
-	@Override
-	default void dispose() {
-		channel().close();
-	}
-
-	/**
-	 * Return a {@link CoreSubscriber} that will dispose on complete or error
-	 */
-	default CoreSubscriber<Void> disposeSubscriber() {
-		return new BaseSubscriber<Void>() {
-
-			@Override
-			protected void hookOnSubscribe(Subscription subscription) {
-				onDispose(this);
-			}
-
-			@Override
-			protected void hookFinally(SignalType type) {
-				if( type != SignalType.CANCEL) {
-					dispose();
-				}
-			}
-		};
-	}
-
-	@Override
-	default boolean isDisposed() {
-		return !channel().isActive();
-	}
-
-	/**
 	 * Mark the underlying channel as persistent or not.
 	 * If false, it will force a close on terminal protocol events thus defeating
 	 * any pooling strategy
@@ -255,29 +185,6 @@ public interface Connection extends Disposable {
 			channel().attr(ReactorNetty.PERSISTENT_CHANNEL)
 			         .set(persist);
 		}
-		return this;
-	}
-
-	/**
-	 * Return an observing {@link Mono} terminating with success when shutdown
-	 * successfully
-	 * or error.
-	 *
-	 * @return a {@link Mono} terminating with success if shutdown successfully or error
-	 */
-	default Mono<Void> onDispose(){
-		return FutureMono.from(channel().closeFuture());
-	}
-
-	/**
-	 * Assign a {@link Runnable} to be invoked when the channel is closed.
-	 *
-	 * @param onDispose the close event handler
-	 *
-	 * @return {@literal this}
-	 */
-	default Connection onDispose(Disposable onDispose){
-		onDispose().subscribe(null, e -> onDispose.dispose(), onDispose::dispose);
 		return this;
 	}
 

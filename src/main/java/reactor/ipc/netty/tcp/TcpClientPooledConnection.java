@@ -21,7 +21,6 @@ import java.util.function.Supplier;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.BootstrapConfig;
-import io.netty.channel.Channel;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.pool.ChannelPool;
 import io.netty.handler.ssl.JdkSslContext;
@@ -29,7 +28,7 @@ import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.channel.ChannelOperations;
-import reactor.ipc.netty.channel.ContextHandler;
+import reactor.ipc.netty.channel.ChannelSink;
 import reactor.ipc.netty.resources.LoopResources;
 import reactor.ipc.netty.resources.PoolResources;
 
@@ -41,7 +40,7 @@ final class TcpClientPooledConnection extends TcpClient {
 	static final TcpClientPooledConnection INSTANCE =
 			new TcpClientPooledConnection(TcpResources.get());
 
-	static final ChannelOperations.OnNew<Channel> EMPTY = (a, b, c) -> null;
+	static final ChannelOperations.OnNew EMPTY = (a, b, c) -> null;
 
 	final PoolResources poolResources;
 
@@ -52,7 +51,7 @@ final class TcpClientPooledConnection extends TcpClient {
 	@Override
 	@SuppressWarnings("unchecked")
 	public Mono<? extends Connection> connect(Bootstrap b) {
-		ChannelOperations.OnNew<?> ops = BootstrapHandlers.channelOperationFactory(b);
+		ChannelOperations.OnNew ops = BootstrapHandlers.channelOperationFactory(b);
 
 		BootstrapConfig bc = b.config();
 
@@ -74,13 +73,17 @@ final class TcpClientPooledConnection extends TcpClient {
 
 		return Mono.create(sink -> {
 
-			ContextHandler<Channel> contextHandler = ContextHandler.newClientContext(sink, EMPTY);
-			ChannelPool pool = poolResources.selectOrCreate(bc.remoteAddress(), b, contextHandler, bc.group());
+			ChannelSink<Connection> channelSink =
+					ChannelSink.newClientContext(sink, EMPTY);
+			ChannelPool pool = poolResources.selectOrCreate(bc.remoteAddress(),
+					b,
+					channelSink,
+					bc.group());
 
-			BootstrapHandlers.updateConfiguration(b, "init", contextHandler);
+			BootstrapHandlers.updateConfiguration(b, "init", channelSink);
 
-			ContextHandler.newClientContext(sink, ops)
-			              .setFuture(pool.acquire());
+			ChannelSink.newClientContext(sink, pool, ops)
+			           .setFuture(pool.acquire());
 		});
 	}
 }

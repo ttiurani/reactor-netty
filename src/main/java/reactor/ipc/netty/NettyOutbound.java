@@ -18,45 +18,48 @@ package reactor.ipc.netty;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.util.Objects;
 import java.util.function.Consumer;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
-import io.netty.channel.DefaultFileRegion;
-import io.netty.handler.ssl.SslHandler;
-import io.netty.handler.stream.ChunkedInput;
-import io.netty.handler.stream.ChunkedNioFile;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
-import reactor.core.Exceptions;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.ipc.connector.Outbound;
-import reactor.ipc.netty.channel.data.AbstractFileChunkedStrategy;
-import reactor.ipc.netty.channel.data.FileChunkedStrategy;
 
 /**
  * @author Stephane Maldini
  */
-public interface NettyOutbound extends Outbound<ByteBuf>, Publisher<Void> {
+public interface NettyOutbound extends Outbound<ByteBuf> {
 
 	/**
 	 * Return the assigned {@link ByteBufAllocator}.
 	 *
 	 * @return the {@link ByteBufAllocator}
 	 */
-	default ByteBufAllocator alloc() {
-		return context().channel()
-		                .alloc();
+	ByteBufAllocator alloc();
+	/**
+	 * Assign a {@link Runnable} to be invoked when writes have become idle for the given
+	 * timeout. This replaces any previously set idle callback.
+	 *
+	 * @param idleTimeout the idle timeout
+	 * @param onWriteIdle the idle timeout handler
+	 *
+	 * @return {@literal this}
+	 */
+	default NettyOutbound onWriteIdle(long idleTimeout, Runnable onWriteIdle) {
+		return withConnection(c -> {
+			c.removeHandler(NettyPipeline.OnChannelWriteIdle);
+			c.addHandlerFirst(NettyPipeline.OnChannelWriteIdle,
+					new ReactorNetty.OutboundIdleStateHandler(idleTimeout, onWriteIdle));
+		});
 	}
 
 	/**
@@ -69,48 +72,11 @@ public interface NettyOutbound extends Outbound<ByteBuf>, Publisher<Void> {
 	 * @return {@code this} instance
 	 */
 	default NettyOutbound options(Consumer<? super NettyPipeline.SendOptions> configurator) {
-		context().channel()
-		         .pipeline()
-		         .fireUserEventTriggered(new NettyPipeline.SendOptionsChangeEvent(configurator, null));
-		return this;
-	}
-
-	/**
-	 * Return a {@link Connection} to operate on the underlying
-	 * {@link Channel} state.
-	 *
-	 * @return the {@link Connection}
-	 */
-	Connection context();
-
-	/**
-	 * Immediately call the passed callback with a {@link Connection} to operate on the
-	 * underlying
-	 * {@link Channel} state. This allows for chaining outbound API.
-	 *
-	 * @param contextCallback context callback
-	 *
-	 * @return the {@link Connection}
-	 */
-	default NettyOutbound context(Consumer<Connection> contextCallback){
-		contextCallback.accept(context());
-		return this;
-	}
-
-	/**
-	 * Assign a {@link Runnable} to be invoked when writes have become idle for the given
-	 * timeout. This replaces any previously set idle callback.
-	 *
-	 * @param idleTimeout the idle timeout
-	 * @param onWriteIdle the idle timeout handler
-	 *
-	 * @return {@literal this}
-	 */
-	default NettyOutbound onWriteIdle(long idleTimeout, Runnable onWriteIdle) {
-		context().removeHandler(NettyPipeline.OnChannelWriteIdle);
-		context().addHandlerFirst(NettyPipeline.OnChannelWriteIdle,
-				new ReactorNetty.OutboundIdleStateHandler(idleTimeout, onWriteIdle));
-		return this;
+		return withConnection(c -> c.channel()
+		                            .pipeline()
+		                            .fireUserEventTriggered(new NettyPipeline.SendOptionsChangeEvent(
+				                            configurator,
+				                            null)));
 	}
 
 	@Override
@@ -162,20 +128,6 @@ public interface NettyOutbound extends Outbound<ByteBuf>, Publisher<Void> {
 		}
 	}
 
-	FileChunkedStrategy<ByteBuf> FILE_CHUNKED_STRATEGY_BUFFER = new AbstractFileChunkedStrategy<ByteBuf>() {
-
-		@Override
-		public ChunkedInput<ByteBuf> chunkFile(FileChannel fileChannel) {
-			try {
-				//TODO tune the chunk size
-				return new ChunkedNioFile(fileChannel, 1024);
-			}
-			catch (IOException e) {
-				throw Exceptions.propagate(e);
-			}
-		}
-	};
-
 	/**
 	 * Send content from given {@link Path} using
 	 * {@link java.nio.channels.FileChannel#transferTo(long, long, WritableByteChannel)}
@@ -198,54 +150,14 @@ public interface NettyOutbound extends Outbound<ByteBuf>, Publisher<Void> {
 	 * @return A Publisher to signal successful sequence write (e.g. after "flush") or any
 	 * error during write
 	 */
-	default NettyOutbound sendFile(Path file, long position, long count) {
-		Objects.requireNonNull(file);
-		if (context().channel().pipeline().get(SslHandler.class) != null) {
-			return sendFileChunked(file, position, count);
-		}
+	NettyOutbound sendFile(Path file, long position, long count);
 
-		return then(Mono.using(() -> FileChannel.open(file, StandardOpenOption.READ),
-				fc -> FutureMono.from(context().channel().writeAndFlush(new DefaultFileRegion(fc, position, count))),
-				fc -> {
-					try {
-						fc.close();
-					}
-					catch (IOException ioe) {/*IGNORE*/}
-				}));
-	}
-
-	default FileChunkedStrategy getFileChunkedStrategy() {
-		return FILE_CHUNKED_STRATEGY_BUFFER;
-	}
-
-	default NettyOutbound sendFileChunked(Path file, long position, long count) {
-		Objects.requireNonNull(file);
-		final FileChunkedStrategy strategy = getFileChunkedStrategy();
-		final boolean needChunkedWriteHandler = context().channel().pipeline().get(NettyPipeline.ChunkedWriter) == null;
-		if (needChunkedWriteHandler) {
-			strategy.preparePipeline(context());
-		}
-
-		return then(Mono.using(() -> FileChannel.open(file, StandardOpenOption.READ),
-				fc -> {
-						try {
-							ChunkedInput<?> message = strategy.chunkFile(fc);
-							return FutureMono.from(context().channel().writeAndFlush(message));
-						}
-						catch (Exception e) {
-							return Mono.error(e);
-						}
-				},
-				fc -> {
-					try {
-						fc.close();
-					}
-					catch (IOException ioe) {/*IGNORE*/}
-					finally {
-						strategy.cleanupPipeline(context());
-					}
-				}));
-	}
+	/**
+	 *
+	 * @param file
+	 * @return
+	 */
+	NettyOutbound sendFileChunked(Path file);
 
 	/**
 	 * Send data to the peer, listen for any error on write and close on terminal signal
@@ -273,10 +185,7 @@ public interface NettyOutbound extends Outbound<ByteBuf>, Publisher<Void> {
 	 * @return A Publisher to signal successful sequence write (e.g. after "flush") or any
 	 * error during write
 	 */
-	default NettyOutbound sendObject(Publisher<?> dataStream) {
-		return then(FutureMono.deferFuture(() -> context().channel()
-		                                                  .writeAndFlush(dataStream)));
-	}
+	NettyOutbound sendObject(Publisher<?> dataStream);
 
 	/**
 	 * Send data to the peer, listen for any error on write and close on terminal signal
@@ -288,8 +197,7 @@ public interface NettyOutbound extends Outbound<ByteBuf>, Publisher<Void> {
 	 * any error during write
 	 */
 	default NettyOutbound sendObject(Object msg) {
-		return then(FutureMono.deferFuture(() -> context().channel()
-		                                                  .writeAndFlush(msg)));
+		return sendObject(Mono.just(msg));
 	}
 
 	/**
@@ -349,5 +257,15 @@ public interface NettyOutbound extends Outbound<ByteBuf>, Publisher<Void> {
 	default NettyOutbound then(Publisher<Void> other) {
 		return new ReactorNetty.OutboundThen(this, other);
 	}
+
+	/**
+	 * Call the passed callback with a {@link Connection} to operate on the underlying
+	 * {@link Channel} state.
+	 *
+	 * @param onConnection connection callback
+	 *
+	 * @return the {@link Connection}
+	 */
+	NettyOutbound withConnection(Consumer<? super Connection> onConnection);
 
 }

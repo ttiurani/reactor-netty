@@ -19,6 +19,7 @@ package reactor.ipc.netty.http.client;
 import java.net.URI;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -36,6 +37,7 @@ import io.netty.handler.codec.http.websocketx.WebSocketClientHandshaker;
 import io.netty.handler.codec.http.websocketx.WebSocketClientHandshakerFactory;
 import io.netty.handler.codec.http.websocketx.WebSocketHandshakeException;
 import io.netty.handler.codec.http.websocketx.WebSocketVersion;
+import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyPipeline;
 import reactor.ipc.netty.http.websocket.WebsocketInbound;
 import reactor.ipc.netty.http.websocket.WebsocketOutbound;
@@ -44,7 +46,7 @@ import reactor.ipc.netty.http.websocket.WebsocketOutbound;
  * @author Stephane Maldini
  * @author Simon Baslé
  */
-final class HttpClientWSOperations extends HttpClientOperations
+final class WebsocketClientOperations extends HttpClientOperations
 		implements WebsocketInbound, WebsocketOutbound, BiConsumer<Void, Throwable> {
 
 	final WebSocketClientHandshaker handshaker;
@@ -52,7 +54,7 @@ final class HttpClientWSOperations extends HttpClientOperations
 
 	volatile int closeSent;
 
-	HttpClientWSOperations(URI currentURI,
+	WebsocketClientOperations(URI currentURI,
 			String protocols,
 			HttpClientOperations replaced) {
 		super(replaced.channel(), replaced);
@@ -162,7 +164,7 @@ final class HttpClientWSOperations extends HttpClientOperations
 					}
 				}
 
-				parentContext().fireContextActive(this);
+				listener().fireConnectionActive(this);
 				handshakerResult.trySuccess();
 			}
 			return;
@@ -186,11 +188,6 @@ final class HttpClientWSOperations extends HttpClientOperations
 		else {
 			super.onInboundNext(ctx, msg);
 		}
-	}
-
-	@Override
-	public WebsocketInbound receiveWebsocket() {
-		return this;
 	}
 
 	@Override
@@ -239,7 +236,13 @@ final class HttpClientWSOperations extends HttpClientOperations
 		}
 	}
 
-	static final AtomicIntegerFieldUpdater<HttpClientWSOperations> CLOSE_SENT =
-			AtomicIntegerFieldUpdater.newUpdater(HttpClientWSOperations.class,
+	@Override
+	public WebsocketClientOperations withConnection(Consumer<? super Connection> connectionHandler) {
+		super.withConnection(connectionHandler);
+		return this;
+	}
+
+	static final AtomicIntegerFieldUpdater<WebsocketClientOperations> CLOSE_SENT =
+			AtomicIntegerFieldUpdater.newUpdater(WebsocketClientOperations.class,
 					"closeSent");
 }

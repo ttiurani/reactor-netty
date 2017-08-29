@@ -17,10 +17,12 @@ package reactor.ipc.netty.tcp;
 
 import java.util.Objects;
 
+import javax.annotation.Nullable;
+
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.handler.ssl.SslContext;
 import reactor.core.publisher.Mono;
-import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.DisposableServer;
 
 /**
  * @author Stephane Maldini
@@ -39,11 +41,12 @@ abstract class TcpServerOperator extends TcpServer {
 	}
 
 	@Override
-	public Mono<? extends Connection> bind(ServerBootstrap b) {
+	public Mono<? extends DisposableServer> bind(ServerBootstrap b) {
 		return source.bind(b);
 	}
 
 	@Override
+	@Nullable
 	public SslContext sslContext(){
 		return source.sslContext();
 	}

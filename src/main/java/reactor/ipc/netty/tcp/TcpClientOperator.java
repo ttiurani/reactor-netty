@@ -17,6 +17,8 @@ package reactor.ipc.netty.tcp;
 
 import java.util.Objects;
 
+import javax.annotation.Nullable;
+
 import io.netty.bootstrap.Bootstrap;
 import io.netty.handler.ssl.SslContext;
 import reactor.core.publisher.Mono;
@@ -44,11 +46,13 @@ abstract class TcpClientOperator extends TcpClient {
 	}
 
 	@Override
+	@Nullable
 	public SslContext sslContext(){
 		return source.sslContext();
 	}
 
 	@Override
+	@Nullable
 	public ProxyProvider proxyProvider(){
 		return source.proxyProvider();
 	}

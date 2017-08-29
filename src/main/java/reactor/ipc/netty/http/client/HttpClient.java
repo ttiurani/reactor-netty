@@ -16,34 +16,31 @@
 
 package reactor.ipc.netty.http.client;
 
-import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.Channel;
+import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.logging.LogLevel;
-import io.netty.handler.logging.LoggingHandler;
 import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.ByteBufFlux;
+import reactor.ipc.netty.ByteBufMono;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.channel.ChannelOperations;
 import reactor.ipc.netty.http.HttpResources;
 import reactor.ipc.netty.http.websocket.WebsocketInbound;
 import reactor.ipc.netty.http.websocket.WebsocketOutbound;
-import reactor.ipc.netty.tcp.ProxyProvider;
 import reactor.ipc.netty.tcp.TcpClient;
-import reactor.ipc.netty.tcp.TcpServer;
 
 /**
- * A nHttpClient allows to build in a safe immutable way an http client that is
+ * An HttpClient allows to build in a safe immutable way an http client that is
  * materialized and connecting when {@link #connect(Bootstrap)} is ultimately called.
  * <p> Internally, materialization happens in three phases, first {@link #tcpConfiguration()}
  * is called to retrieve a ready to use {@link TcpClient}, then {@link
@@ -52,25 +49,23 @@ import reactor.ipc.netty.tcp.TcpServer;
  * <p> Examples:
  * <pre>
  * {@code
- * HttpClient.create()
- * .uri("http://example.com")
+ * HttpClient.create("http://example.com")
  * .get()
  * .single()
  * .block();
  * }
  * {@code
- * HttpClient.create()
- * .uri("http://example.com")
+ * HttpClient.create("http://example.com")
  * .post()
  * .send(Flux.just(bb1, bb2, bb3))
  * .single(res -> Mono.just(res.status()))
  * .block();
  * }
  * {@code
- * HttpClient.create()
- * .uri("http://example.com")
- * .body(ByteBufFlux.fromByteArray(flux))
+ * HttpClient.prepare()
  * .post()
+ * .uri("http://example.com")
+ * .send(ByteBufFlux.fromByteArray(flux))
  * .single(res -> Mono.just(res.status()))
  * .block();
  * }
@@ -83,35 +78,116 @@ public abstract class HttpClient {
 			String.format("ReactorNetty/%s", reactorNettyVersion());
 
 	/**
-	 * A ready to request {@link HttpClient}
+	 * A URI configuration
 	 */
-	public interface RequestContent {
+	public interface UriConfiguration<S extends ResponseReceiver<?>> {
 
-		ByteBufFlux content();
+		/**
+		 * Configure URI to use for this request/response
+		 *
+		 * @param uri target uri
+		 *
+		 * @return the appropriate sending or receiving contract
+		 */
+		S uri(String uri);
 
-		<V> Flux<V> stream(Function<? super HttpClientResponse, ? extends Publisher<? extends V>> receiver);
+		/**
+		 * Configure URI to use for this request/response on subscribe
+		 *
+		 * @param uri target uri
+		 *
+		 * @return the appropriate sending or receiving contract
+		 */
+		S uri(Mono<String> uri);
+	}
 
-		<V> Mono<V> single(Function<? super HttpClientResponse, ? extends Mono<? extends V>> receiver);
+	/**
+	 * A ready to receive {@link HttpClient}
+	 */
+	public interface ResponseReceiver<S extends ResponseReceiver<?>>
+			extends UriConfiguration<S> {
+
+		/**
+		 * @return
+		 */
+		Mono<HttpClientResponse> response();
+
+		/**
+		 * @param receiver
+		 * @param <V>
+		 *
+		 * @return
+		 */
+		<V> Flux<V> response(BiFunction<? super HttpClientResponse, ? super ByteBufFlux, ? extends Publisher<? extends V>> receiver);
+
+		/**
+		 * @return
+		 */
+		ByteBufFlux responseContent();
+
+		/**
+		 * @param receiver
+		 * @param <V>
+		 *
+		 * @return
+		 */
+		<V> Mono<V> responseSingle(BiFunction<? super HttpClientResponse, ? super ByteBufMono, ? extends Mono<? extends V>> receiver);
+
 	}
 
 	/**
 	 * A ready to request {@link HttpClient}
 	 */
-	public interface ResponseContent {
+	public interface RequestSender extends ResponseReceiver<RequestSender> {
 
-		ByteBufFlux content();
+		/**
+		 * @param body
+		 *
+		 * @return
+		 */
+		ResponseReceiver<?> send(Publisher<? extends ByteBuf> body);
 
-		<V> Flux<V> stream(Function<? super HttpClientResponse, ? extends Publisher<? extends V>> receiver);
+		/**
+		 * @param sender
+		 *
+		 * @return
+		 */
+		ResponseReceiver<?> send(BiFunction<? super HttpClientRequest, ? super NettyOutbound, ? extends NettyOutbound> sender);
 
-		<V> Mono<V> single(Function<? super HttpClientResponse, ? extends Mono<? extends V>> receiver);
+		/**
+		 * Prepare to send an HTTP Form including Multipart encoded Form which support
+		 * chunked file upload. It will by default be encoded as Multipart but can be
+		 * adapted via {@link HttpClientForm#multipart(boolean)}.
+		 *
+		 * @param formCallback called when form generator is created
+		 *
+		 * @return a {@link Flux} of latest in-flight or uploaded bytes,
+		 */
+		ResponseReceiver<?> sendForm(Consumer<HttpClientForm> formCallback);
+
+	}
+
+	public interface WebsocketReceiver extends ResponseReceiver<WebsocketReceiver> {
+
 	}
 
 	/**
-	 * Prepare a pooled {@link HttpClient}
+	 * Prepare a pooled {@link HttpClient} given the passed URI.
+	 *
+	 * @return a new {@link HttpClient}
+	 */
+	public static HttpClient create(String uri) {
+		return prepare().baseUrl(uri);
+	}
+
+	/**
+	 * Prepare a pooled {@link HttpClient}. {@link UriConfiguration#uri(String)} or
+	 * {@link #baseUrl(String)} should be invoked before a verb
+	 * {@link #request(HttpMethod)} is selected.
 	 *
 	 * @return a {@link HttpClient}
 	 */
-	public static HttpClient create() {
+	public static HttpClient prepare() {
 		return HttpClientConnection.INSTANCE;
 	}
 
@@ -122,6 +198,18 @@ public abstract class HttpClient {
 	 */
 	public static HttpClient from(TcpClient tcpClient) {
 		return new HttpClientConnection(tcpClient);
+	}
+
+	/**
+	 * Configure URI to use for this request/response
+	 *
+	 * @param baseUrl a default base url that can be fully sufficient for request or can
+	 * be used to prepend future {@link UriConfiguration#uri} calls.
+	 *
+	 * @return the appropriate sending or receiving contract
+	 */
+	public final HttpClient baseUrl(String baseUrl) {
+		return new HttpClientBaseUrl(this, baseUrl);
 	}
 
 	/**
@@ -136,67 +224,73 @@ public abstract class HttpClient {
 	/**
 	 * HTTP DELETE to connect the {@link HttpClient}.
 	 *
-	 * @return a {@link RequestContent} ready to prepare the content for response
+	 * @return a {@link RequestSender} ready to prepare the content for response
 	 */
-	public final RequestContent delete() {
+	public final RequestSender delete() {
 		return request(HttpMethod.DELETE);
 	}
 
 	/**
-	 * Setup a callback called when {@link Channel} is about to connect.
+	 * Setup a callback called when {@link HttpClientRequest} is about to be sent.
 	 *
-	 * @param doOnConnect a runnable observing connected events
+	 * @param doOnRequest a consumer observing connected events
 	 *
 	 * @return a new {@link HttpClient}
 	 */
-	public final HttpClient doOnConnect(Consumer<? super Bootstrap> doOnConnect) {
-		return tcpConfiguration(tcp -> tcp.doOnConnect(doOnConnect));
+	public final HttpClient doOnRequest(Consumer<? super HttpClientRequest> doOnRequest) {
+		return new HttpClientLifecycle(this, doOnRequest, null, null, null);
 	}
 
 	/**
-	 * Setup a callback called after {@link Channel} has been connected.
+	 * Setup a callback called when {@link HttpClientRequest} has been sent
 	 *
-	 * @param doOnConnected a consumer observing connected events
+	 * @param doAfterRequest a consumer observing connected events
 	 *
 	 * @return a new {@link HttpClient}
 	 */
-	public final HttpClient doOnConnected(Consumer<? super Connection> doOnConnected) {
-		return tcpConfiguration(tcp -> tcp.doOnConnected(doOnConnected));
+	public final HttpClient doAfterRequest(Consumer<? super HttpClientRequest> doAfterRequest) {
+		return new HttpClientLifecycle(this, null, doAfterRequest, null, null);
 	}
 
 	/**
-	 * Setup a callback called after {@link Channel} has been disconnected.
+	 * Setup a callback called after {@link HttpClientResponse} headers have been
+	 * received
 	 *
-	 * @param doOnDisconnect a consumer observing disconnected events
+	 * @param doOnResponse a consumer observing connected events
 	 *
 	 * @return a new {@link HttpClient}
 	 */
-	public final HttpClient doOnDisconnect(Consumer<? super Connection> doOnDisconnect) {
-		return tcpConfiguration(tcp -> tcp.doOnDisconnect(doOnDisconnect));
+	public final HttpClient doOnResponse(Consumer<? super HttpClientResponse> doOnResponse) {
+		return new HttpClientLifecycle(this, null, null, doOnResponse, null);
+	}
+
+	/**
+	 * Setup a callback called after {@link HttpClientResponse} has been fully received.
+	 *
+	 * @param doAfterResponse a consumer observing disconnected events
+	 *
+	 * @return a new {@link HttpClient}
+	 */
+	public final HttpClient doAfterResponse(Consumer<? super HttpClientResponse> doAfterResponse) {
+		return new HttpClientLifecycle(this, null, null, null, doAfterResponse);
 	}
 
 	/**
 	 * HTTP GET to connect the {@link HttpClient}.
 	 *
-	 * @return a {@link RequestContent} ready to consume for response
+	 * @return a {@link RequestSender} ready to consume for response
 	 */
-	public final RequestContent get() {
+	public final ResponseReceiver get() {
 		return request(HttpMethod.GET);
 	}
 
 	/**
-	 * Attach an IO handler to react on connected client
+	 * HTTP GET to connect the {@link HttpClient}.
 	 *
-	 * @param handler an IO handler that can dispose underlying connection when {@link
-	 * Publisher} terminates.
-	 *
-	 * @return a new {@link HttpClient}
+	 * @return a {@link RequestSender} ready to consume for response
 	 */
-	public final HttpClient handler(BiFunction<? super HttpClientResponse, ? super HttpClientRequest, ? extends Publisher<Void>> handler) {
-		Objects.requireNonNull(handler, "handler");
-		return doOnConnected(c -> Mono.fromDirect(handler.apply((HttpClientResponse) c,
-				(HttpClientRequest) c))
-		                              .subscribe(c.disposeSubscriber()));
+	public final ResponseReceiver head() {
+		return request(HttpMethod.HEAD);
 	}
 
 	/**
@@ -212,19 +306,6 @@ public abstract class HttpClient {
 	}
 
 	/**
-	 * Apply an http proxy configuration. Use {@link #tcpConfiguration(Function)} to
-	 * access more proxy types including SOCKS4 and SOCKS5.
-	 *
-	 * @param proxyOptions the http proxy configuration callback
-	 *
-	 * @return a new {@link HttpClient}
-	 */
-	public final HttpClient httpProxy(Consumer<? super ProxyProvider.AddressSpec> proxyOptions) {
-		return tcpConfiguration(tcp -> tcp.proxy(p -> proxyOptions.accept(p.type(
-				ProxyProvider.Proxy.HTTP))));
-	}
-
-	/**
 	 * Disable gzip compression
 	 *
 	 * @return a new {@link HttpClient}
@@ -234,47 +315,38 @@ public abstract class HttpClient {
 	}
 
 	/**
-	 * Remove any previously applied SSL configuration customization
-	 *
-	 * @return a new {@link HttpClient}
-	 */
-	public final HttpClient noProxy() {
-		return tcpConfiguration(TcpClient::noProxy);
-	}
-
-	/**
 	 * HTTP OPTIONS to connect the {@link HttpClient}.
 	 *
-	 * @return a {@link RequestContent} ready to consume for response
+	 * @return a {@link RequestSender} ready to consume for response
 	 */
-	public final RequestContent options() {
+	public final ResponseReceiver options() {
 		return request(HttpMethod.OPTIONS);
 	}
 
 	/**
 	 * HTTP PATCH to connect the {@link HttpClient}.
 	 *
-	 * @return a {@link RequestContent} ready to consume for response
+	 * @return a {@link RequestSender} ready to consume for response
 	 */
-	public final RequestContent patch() {
+	public final RequestSender patch() {
 		return request(HttpMethod.PATCH);
 	}
 
 	/**
 	 * HTTP POST to connect the {@link HttpClient}.
 	 *
-	 * @return a {@link RequestContent} ready to consume for response
+	 * @return a {@link RequestSender} ready to consume for response
 	 */
-	public final RequestContent post() {
+	public final RequestSender post() {
 		return request(HttpMethod.POST);
 	}
 
 	/**
 	 * HTTP PUT to connect the {@link HttpClient}.
 	 *
-	 * @return a {@link RequestContent} ready to consume for response
+	 * @return a {@link RequestSender} ready to consume for response
 	 */
-	public final RequestContent put() {
+	public final RequestSender put() {
 		return request(HttpMethod.PUT);
 	}
 
@@ -283,9 +355,9 @@ public abstract class HttpClient {
 	 *
 	 * @param method the HTTP method to send
 	 *
-	 * @return a {@link RequestContent} ready to consume for response
+	 * @return a {@link RequestSender} ready to consume for response
 	 */
-	public RequestContent request(HttpMethod method) {
+	public RequestSender request(HttpMethod method) {
 		return new MonoHttpClientResponse(this, method);
 	}
 
@@ -304,58 +376,11 @@ public abstract class HttpClient {
 	}
 
 	/**
-	 * @param baseUri
-	 *
-	 * @return
-	 */
-	public final HttpClient uri(String baseUri) {
-		return new HttpClientUri(this, baseUri);
-	}
-
-	/**
-	 * Apply a wire logger configuration using {@link TcpServer} category
-	 *
-	 * @return a new {@link TcpServer}
-	 */
-	public final HttpClient wiretap() {
-		return tcpConfiguration(tcp -> tcp.bootstrap(b -> BootstrapHandlers.updateLogSupport(
-				b,
-				LOGGING_HANDLER)));
-	}
-
-	/**
-	 * Apply a wire logger configuration
-	 *
-	 * @param category the logger category
-	 *
-	 * @return a new {@link TcpServer}
-	 */
-	public final HttpClient wiretap(String category) {
-		return wiretap(category, LogLevel.DEBUG);
-	}
-
-	/**
-	 * Apply a wire logger configuration
-	 *
-	 * @param category the logger category
-	 * @param level the logger level
-	 *
-	 * @return a new {@link TcpServer}
-	 */
-	public final HttpClient wiretap(String category, LogLevel level) {
-		Objects.requireNonNull(category, "category");
-		Objects.requireNonNull(level, "level");
-		return tcpConfiguration(tcp -> tcp.bootstrap(b -> BootstrapHandlers.updateLogSupport(
-				b,
-				new LoggingHandler(category, level))));
-	}
-
-	/**
 	 * WebSocket to connect the {@link HttpClient}.
 	 *
-	 * @return a {@link RequestContent} ready to consume for response
+	 * @return a {@link RequestSender} ready to consume for response
 	 */
-	public final RequestContent ws() {
+	public final WebsocketReceiver ws() {
 		return request(WS, HttpClientRequest::sendWebsocket);
 	}
 
@@ -372,9 +397,9 @@ public abstract class HttpClient {
 	 * @param subprotocols the subprotocol(s) to negotiate, comma-separated, or null if
 	 * not relevant.
 	 *
-	 * @return a {@link RequestContent} ready to consume for response
+	 * @return a {@link RequestSender} ready to consume for response
 	 */
-	public final RequestContent ws(String subprotocols) {
+	public final WebsocketReceiver ws(String subprotocols) {
 		return request(WS, req -> req.sendWebsocket(subprotocols));
 	}
 
@@ -397,14 +422,16 @@ public abstract class HttpClient {
 		return DEFAULT_TCP_CLIENT;
 	}
 
-	static final LoggingHandler LOGGING_HANDLER = new LoggingHandler(HttpClient.class);
 
-	final static HttpMethod     WS              = new HttpMethod("WS");
-	final static String         WS_SCHEME       = "ws";
-	final static String         WSS_SCHEME      = "wss";
-	final static String         HTTP_SCHEME     = "http";
-	final static String         HTTPS_SCHEME    = "https";
-	static final ChannelOperations.OnNew<?> HTTP_OPS =
+	abstract String uri();
+
+
+	final static HttpMethod              WS           = new HttpMethod("WS");
+	final static String                  WS_SCHEME    = "ws";
+	final static String                  WSS_SCHEME   = "wss";
+	final static String                  HTTP_SCHEME  = "http";
+	final static String                  HTTPS_SCHEME = "https";
+	static final ChannelOperations.OnNew HTTP_OPS     =
 			(ch, c, msg) -> HttpClientOperations.bindHttp(ch, c);
 
 	static final Function<Bootstrap, Bootstrap> HTTP_OPS_CONF = b -> {

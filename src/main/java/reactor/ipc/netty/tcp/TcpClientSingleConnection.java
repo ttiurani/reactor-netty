@@ -23,7 +23,7 @@ import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.channel.ChannelOperations;
-import reactor.ipc.netty.channel.ContextHandler;
+import reactor.ipc.netty.channel.ChannelSink;
 import reactor.ipc.netty.resources.LoopResources;
 
 /**
@@ -35,7 +35,7 @@ final class TcpClientSingleConnection extends TcpClient {
 
 	@Override
 	public Mono<? extends Connection> connect(Bootstrap b) {
-		ChannelOperations.OnNew<?> ops = BootstrapHandlers.channelOperationFactory(b);
+		ChannelOperations.OnNew ops = BootstrapHandlers.channelOperationFactory(b);
 
 		if (b.config()
 		     .group() == null) {
@@ -53,11 +53,11 @@ final class TcpClientSingleConnection extends TcpClient {
 
 		return Mono.create(sink -> {
 
-			ContextHandler<?> contextHandler = ContextHandler.newClientContext(sink, ops);
+			ChannelSink<?> channelSink = ChannelSink.newClientContext(sink, ops);
 
-			BootstrapHandlers.updateConfiguration(b, "init", contextHandler);
+			BootstrapHandlers.updateConfiguration(b, "init", channelSink);
 
-			contextHandler.setFuture(b.connect());
+			channelSink.setFuture(b.connect());
 		});
 	}
 }

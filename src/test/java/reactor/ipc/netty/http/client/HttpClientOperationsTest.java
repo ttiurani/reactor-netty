@@ -30,7 +30,7 @@ import org.reactivestreams.Publisher;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyPipeline;
-import reactor.ipc.netty.channel.ContextHandler;
+import reactor.ipc.netty.channel.ChannelSink;
 
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.CoreMatchers.nullValue;
@@ -42,9 +42,10 @@ import static org.junit.Assert.*;
  */
 public class HttpClientOperationsTest {
 
-	ContextHandler<Channel> handler = new ContextHandler<Channel>((a, b, c) -> null, null, null, null, null) {
+	ChannelSink<Connection>
+			handler = new ChannelSink<Channel>((a, b, c) -> null, null, null, null, null) {
 		@Override
-		public void fireContextActive(Connection context) {
+		public void fireConnectionActive(Connection context) {
 
 		}
 

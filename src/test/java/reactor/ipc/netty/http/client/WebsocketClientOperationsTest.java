@@ -30,7 +30,7 @@ import reactor.test.StepVerifier;
 /**
  * @author Violeta Georgieva
  */
-public class HttpClientWSOperationsTest {
+public class WebsocketClientOperationsTest {
 
 	@Test
 	public void failOnClientErrorDisabled() {

@@ -25,11 +25,11 @@ import reactor.ipc.netty.tcp.TcpClient;
 /**
  * @author Stephane Maldini
  */
-final class HttpClientUri extends HttpClientOperator {
+final class HttpClientBaseUrl extends HttpClientOperator {
 
 	final String uri;
 
-	HttpClientUri(HttpClient client, String uri) {
+	HttpClientBaseUrl(HttpClient client, String uri) {
 		super(client);
 		this.uri = Objects.requireNonNull(uri, "uri");
 	}

@@ -94,7 +94,7 @@ public abstract class UdpClient {
 	/**
 	 * Inject default attribute to the future child {@link Channel} connections. They
 	 * will be
-	 * available via {@link reactor.ipc.netty.NettyInbound#attr(AttributeKey)}.
+	 * available via {@link Channel#attr(AttributeKey)}.
 	 *
 	 * @param key the attribute key
 	 * @param value the attribute value

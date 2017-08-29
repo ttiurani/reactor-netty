@@ -31,8 +31,8 @@ import io.netty.handler.codec.http.HttpStatusClass;
 import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.util.ReferenceCountUtil;
 import reactor.core.Exceptions;
+import reactor.ipc.netty.ConnectionEvents;
 import reactor.ipc.netty.NettyPipeline;
-import reactor.ipc.netty.channel.ContextHandler;
 import reactor.util.concurrent.Queues;
 
 import static io.netty.handler.codec.http.HttpUtil.*;
@@ -46,7 +46,7 @@ final class HttpServerHandler extends ChannelDuplexHandler
 
 	static final String MULTIPART_PREFIX = "multipart";
 
-	final ContextHandler<?> parentContext;
+	final ConnectionEvents parentListener;
 
 	boolean persistentConnection = true;
 	// Track pending responses to support client pipelining: https://tools.ietf.org/html/rfc7230#section-6.3.2
@@ -59,8 +59,8 @@ final class HttpServerHandler extends ChannelDuplexHandler
 	boolean overflow;
 	boolean mustRecycleEncoder;
 
-	HttpServerHandler(ContextHandler<?> parentContext) {
-		this.parentContext = parentContext;
+	HttpServerHandler(ConnectionEvents parentListener) {
+		this.parentListener = parentListener;
 	}
 
 	@Override
@@ -102,7 +102,7 @@ final class HttpServerHandler extends ChannelDuplexHandler
 			}
 			else {
 				overflow = false;
-				parentContext.createOperations(ctx.channel(), msg);
+				parentListener.onSetup(ctx.channel(), msg);
 
 				if (!(msg instanceof FullHttpRequest)) {
 					return;
@@ -206,7 +206,7 @@ final class HttpServerHandler extends ChannelDuplexHandler
 					return;
 				}
 				nextRequest = true;
-				parentContext.createOperations(ctx.channel(), next);
+				parentListener.onSetup(ctx.channel(), next);
 
 				if (!(next instanceof FullHttpRequest)) {
 					pipelined.poll();

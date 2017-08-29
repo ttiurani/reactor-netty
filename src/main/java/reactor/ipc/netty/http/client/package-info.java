@@ -14,30 +14,10 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp;
-
-import javax.annotation.Nullable;
-
-import io.netty.bootstrap.Bootstrap;
-import io.netty.handler.ssl.SslContext;
-
 /**
- * @author Stephane Maldini
+ * Components for writing TCP-based clients and servers using Reactor abstractions.
  */
-final class TcpClientUnproxy extends TcpClientOperator {
+@NonNullApi
+package reactor.ipc.netty.http.client;
 
-	TcpClientUnproxy(TcpClient client) {
-		super(client);
-	}
-
-	@Override
-	public Bootstrap configure() {
-		return TcpUtils.removeProxySupport(source.configure());
-	}
-
-	@Override
-	@Nullable
-	public ProxyProvider proxyProvider(){
-		return null;
-	}
-}
+import reactor.util.lang.NonNullApi;

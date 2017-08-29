@@ -14,50 +14,36 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.tcp;
+package reactor.ipc.netty;
 
-import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
-import io.netty.channel.Channel;
+import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.embedded.EmbeddedChannel;
 import org.junit.Test;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.ipc.netty.BlockingConnection;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.DisposableChannel;
+import reactor.ipc.netty.DisposableServer;
 import reactor.ipc.netty.NettyPipeline;
+import reactor.ipc.netty.http.server.HttpServer;
+import reactor.ipc.netty.tcp.TcpClient;
+import reactor.ipc.netty.tcp.TcpServer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
-public class BlockingConnectionTest {
-
-	static final Connection NEVER_STOP_CONTEXT = new Connection() {
-		@Override
-		public Channel channel() {
-			return new EmbeddedChannel();
-		}
-
-		@Override
-		public InetSocketAddress address() {
-			return InetSocketAddress.createUnresolved("localhost", 4321);
-		}
-
-		@Override
-		public Mono<Void> onDispose() {
-			return Mono.never();
-		}
-	};
+public class DisposableChannelTest {
 
 	@Test
 	public void simpleServerFromAsyncServer() throws InterruptedException {
-		BlockingConnection simpleServer =
+		DisposableServer simpleServer =
 				TcpServer.create()
-				         .start((in, out) -> out
+				         .handler((in, out) -> out
 						         .options(NettyPipeline.SendOptions::flushOnEach)
 						         .sendString(
 								         in.receive()
@@ -67,17 +53,20 @@ public class BlockingConnectionTest {
 								           .concatWith(Mono.just("DONE"))
 						         )
 						         .neverComplete()
-				         );
+				         )
+				         .bindNow();
 
-		System.out.println(simpleServer.getHost());
-		System.out.println(simpleServer.getPort());
+		System.out.println(simpleServer.host());
+		System.out.println(simpleServer.port());
 
 		AtomicReference<List<String>> data1 = new AtomicReference<>();
 		AtomicReference<List<String>> data2 = new AtomicReference<>();
 
-		BlockingConnection simpleClient1 =
-				TcpClient.create(simpleServer.getPort())
-				         .start((in, out) -> out.options(NettyPipeline.SendOptions::flushOnEach)
+		Connection simpleClient1 =
+				TcpClient.create()
+				         .port(simpleServer.port())
+				         .handler((in, out) -> out.options(NettyPipeline
+						         .SendOptions::flushOnEach)
 				                                .sendString(Flux.just("Hello", "World", "CONTROL"))
 				                                .then(in.receive()
 				                                        .asString()
@@ -87,11 +76,13 @@ public class BlockingConnectionTest {
 				                                        .collectList()
 				                                        .doOnNext(data1::set)
 				                                        .doOnNext(System.err::println)
-				                                        .then()));
+				                                        .then()))
+				         .connectNow();
 
-		BlockingConnection simpleClient2 =
-				TcpClient.create(simpleServer.getPort())
-				         .start((in, out) -> out.options(NettyPipeline.SendOptions::flushOnEach)
+		Connection simpleClient2 =
+				TcpClient.create()
+				         .port(simpleServer.port())
+				         .handler((in, out) -> out.options(NettyPipeline.SendOptions::flushOnEach)
 				                                .sendString(Flux.just("How", "Are", "You?", "CONTROL"))
 				                                .then(in.receive()
 				                                        .asString()
@@ -101,17 +92,18 @@ public class BlockingConnectionTest {
 				                                        .collectList()
 				                                        .doOnNext(data2::set)
 				                                        .doOnNext(System.err::println)
-				                                        .then()));
+				                                        .then()))
+				         .connectNow();
 
 		Thread.sleep(100);
 		System.err.println("STOPPING 1");
-		simpleClient1.shutdown();
+		simpleClient1.disposeNow();
 
 		System.err.println("STOPPING 2");
-		simpleClient2.shutdown();
+		simpleClient2.disposeNow();
 
 		System.err.println("STOPPING SERVER");
-		simpleServer.shutdown();
+		simpleServer.disposeNow();
 
 		assertThat(data1.get())
 				.allSatisfy(s -> assertThat(s).startsWith("ECHO: "));
@@ -132,43 +124,50 @@ public class BlockingConnectionTest {
 
 	@Test
 	public void testTimeoutOnStart() {
+		TcpServer server = new TcpServer() {
+			@Override
+			public Mono<? extends DisposableServer> bind(ServerBootstrap b) {
+				return Mono.never();
+			}
+		};
+
 		assertThatExceptionOfType(RuntimeException.class)
-				.isThrownBy(() -> new BlockingConnection(Mono.never(), "TEST NEVER START", Duration.ofMillis(100)))
+				.isThrownBy(() -> server.bindNow(Duration.ofMillis(100)))
 				.withCauseExactlyInstanceOf(TimeoutException.class)
-				.withMessage("java.util.concurrent.TimeoutException: TEST NEVER START couldn't be started within 100ms");
+				.withMessage("java.util.concurrent.TimeoutException: couldn't be started within 100ms");
+	}
+
+	@Test
+	public void testHttpTimeoutOnStart() {
+		HttpServer server = new HttpServer() {
+			@Override
+			protected Mono<? extends DisposableServer> bind(ServerBootstrap b) {
+				return Mono.never();
+			}
+		};
+
+		assertThatExceptionOfType(RuntimeException.class)
+				.isThrownBy(() -> server.bindNow(Duration.ofMillis(100)))
+				.withCauseExactlyInstanceOf(TimeoutException.class)
+				.withMessage("java.util.concurrent.TimeoutException: couldn't be started within 100ms");
 	}
 
 	@Test
 	public void testTimeoutOnStop() {
-		final BlockingConnection neverStop =
-				new BlockingConnection(Mono.just(NEVER_STOP_CONTEXT), "TEST NEVER STOP", Duration.ofMillis(100));
+		final DisposableChannel neverStop = EmbeddedChannel::new;
 
 		assertThatExceptionOfType(RuntimeException.class)
-				.isThrownBy(neverStop::shutdown)
+				.isThrownBy(() -> neverStop.disposeNow(Duration.ofMillis(100)))
 				.withCauseExactlyInstanceOf(TimeoutException.class)
-				.withMessage("java.util.concurrent.TimeoutException: TEST NEVER STOP couldn't be stopped within 100ms");
-	}
-
-	@Test
-	public void testTimeoutOnStopChangedTimeout() {
-		final BlockingConnection neverStop =
-				new BlockingConnection(Mono.just(NEVER_STOP_CONTEXT), "TEST NEVER STOP", Duration.ofMillis(500));
-
-		neverStop.setLifecycleTimeout(Duration.ofMillis(100));
-
-		assertThatExceptionOfType(RuntimeException.class)
-				.isThrownBy(neverStop::shutdown)
-				.withCauseExactlyInstanceOf(TimeoutException.class)
-				.withMessage("java.util.concurrent.TimeoutException: TEST NEVER STOP couldn't be stopped within 100ms");
+				.withMessage("java.util.concurrent.TimeoutException: couldn't be stopped within 100ms");
 	}
 
 	@Test
 	public void getContextAddressAndHost() {
-		BlockingConnection
-				facade = new BlockingConnection(Mono.just(NEVER_STOP_CONTEXT), "foo");
+		EmbeddedChannel c = new EmbeddedChannel();
+		DisposableChannel facade = () -> c;
 
-		assertThat(facade.getContext()).isSameAs(NEVER_STOP_CONTEXT);
-		assertThat(facade.getPort()).isEqualTo(NEVER_STOP_CONTEXT.address().getPort());
-		assertThat(facade.getHost()).isEqualTo(NEVER_STOP_CONTEXT.address().getHostString());
+		assertThat(facade.channel()).isSameAs(c);
+		assertThat(facade.address()).isEqualTo(c.remoteAddress());
 	}
 }

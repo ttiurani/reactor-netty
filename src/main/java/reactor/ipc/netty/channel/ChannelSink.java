@@ -17,7 +17,6 @@
 package reactor.ipc.netty.channel;
 
 import java.util.Objects;
-import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
 import io.netty.channel.Channel;
@@ -25,7 +24,6 @@ import io.netty.channel.pool.ChannelPool;
 import io.netty.util.concurrent.Future;
 import org.reactivestreams.Publisher;
 import reactor.core.Disposable;
-import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoSink;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.NettyPipeline;
@@ -34,13 +32,13 @@ import reactor.util.Loggers;
 
 /**
  * A one time-set channel pipeline callback to emit {@link Connection} state for clean
- * disposing. A {@link ContextHandler} is bound to a user-facing {@link MonoSink}
+ * disposing. A {@link ChannelSink} is bound to a user-facing {@link MonoSink}
  *
- * @param <CHANNEL> the channel type
+ * @param <SINK> the sink type
  *
  * @author Stephane Maldini
  */
-public abstract class ContextHandler<CHANNEL extends Channel>
+public abstract class ChannelSink<SINK extends Disposable>
 		implements Disposable, Consumer<Channel> {
 
 	/**
@@ -48,13 +46,12 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	 *
 	 * @param sink
 	 * @param channelOpFactory
-	 * @param <CHANNEL>
 	 *
-	 * @return a new {@link ContextHandler} for clients
+	 * @return a new {@link ChannelSink} for clients
 	 */
-	public static <CHANNEL extends Channel> ContextHandler<CHANNEL> newClientContext(
+	public static ChannelSink<Connection> newClientContext(
 			MonoSink<Connection> sink,
-			ChannelOperations.OnNew<CHANNEL> channelOpFactory) {
+			ChannelOperations.OnNew channelOpFactory) {
 		return newClientContext(sink, null, channelOpFactory);
 	}
 
@@ -64,36 +61,21 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	 * @param sink
 	 * @param channelOpFactory
 	 * @param pool
-	 * @param <CHANNEL>
 	 *
-	 * @return a new {@link ContextHandler} for clients
+	 * @return a new {@link ChannelSink} for clients
 	 */
-	public static <CHANNEL extends Channel> ContextHandler<CHANNEL> newClientContext(
+	public static ChannelSink<Connection> newClientContext(
 			MonoSink<Connection> sink,
 			ChannelPool pool,
-			ChannelOperations.OnNew<CHANNEL> channelOpFactory) {
+			ChannelOperations.OnNew channelOpFactory) {
 		if (pool != null) {
-			return new PooledClientContextHandler<>(channelOpFactory, sink, pool);
+			return new PooledClientChannelSink(channelOpFactory, sink, pool);
 		}
-		return new ClientContextHandler<>(channelOpFactory, sink);
+		return new UnpooledClientChannelSink(channelOpFactory, sink);
 	}
 
-	/**
-	 * Create a new server context
-	 *
-	 * @param sink
-	 * @param channelOpFactory
-	 *
-	 * @return a new {@link ContextHandler} for servers
-	 */
-	public static <CHANNEL extends Channel> ContextHandler<CHANNEL> newServerContext(
-			MonoSink<Connection> sink,
-			ChannelOperations.OnNew<CHANNEL> channelOpFactory) {
-		return new ServerContextHandler<>(channelOpFactory, sink);
-	}
-
-	final MonoSink<Connection>             sink;
-	final ChannelOperations.OnNew<CHANNEL> channelOpFactory;
+	final MonoSink<SINK> sink;
+	final ChannelOperations.OnNew        channelOpFactory;
 
 	boolean fired;
 
@@ -102,8 +84,8 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	 * @param sink
 	 */
 	@SuppressWarnings("unchecked")
-	protected ContextHandler(ChannelOperations.OnNew<CHANNEL> channelOpFactory,
-			MonoSink<Connection> sink) {
+	protected ChannelSink(ChannelOperations.OnNew channelOpFactory,
+			MonoSink<SINK> sink) {
 		this.channelOpFactory =
 				Objects.requireNonNull(channelOpFactory, "channelOpFactory");
 		this.sink = sink;
@@ -123,7 +105,7 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	public final ChannelOperations<?, ?> createOperations(Channel channel, Object msg) {
 
 		ChannelOperations<?, ?> op =
-				channelOpFactory.create((CHANNEL) channel, this, msg);
+				channelOpFactory.create(channel, this, msg);
 
 		if (op != null) {
 			ChannelOperations old = ChannelOperations.tryGetAndSet(channel, op);
@@ -136,7 +118,7 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 			}
 
 			channel.pipeline()
-			       .get(ChannelOperationsHandler.class).lastContext = this;
+			       .get(ChannelOperationsHandler.class).lastClientSink = this;
 
 			channel.eventLoop()
 			       .execute(op::onHandlerStart);
@@ -145,22 +127,18 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	}
 
 	/**
-	 * Trigger {@link MonoSink#success(Object)} that will signal {@link
-	 * reactor.ipc.netty.NettyConnector#newHandler(BiFunction)} returned {@link Mono}
-	 * subscriber.
+	 * Trigger {@link MonoSink#success(Object)}
 	 *
-	 * @param context optional context to succeed the associated {@link MonoSink}
+	 * @param connection optional context to succeed the associated {@link MonoSink}
 	 */
-	public abstract void fireContextActive(Connection context);
+	public abstract void fireConnectionActive(SINK connection);
 
 	/**
-	 * Trigger {@link MonoSink#error(Throwable)} that will signal {@link
-	 * reactor.ipc.netty.NettyConnector#newHandler(BiFunction)} returned {@link Mono}
-	 * subscriber.
+	 * Trigger {@link MonoSink#error(Throwable)}
 	 *
 	 * @param t error to fail the associated {@link MonoSink}
 	 */
-	public void fireContextError(Throwable t) {
+	public void fireConnectionError(Throwable t) {
 		if (!fired) {
 			fired = true;
 			sink.error(t);
@@ -211,17 +189,6 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	}
 
 	/**
-	 * Cleanly terminate a channel according to the current context handler type. Server
-	 * might keep alive and recycle connections, pooled client will release and classic
-	 * client will close.
-	 *
-	 * @param channel the channel to unregister
-	 */
-	protected void terminateChannel(Channel channel) {
-		dispose();
-	}
-
-	/**
 	 * Return a Publisher to signal onComplete on {@link Channel} close or release.
 	 *
 	 * @param channel the channel to monitor
@@ -230,5 +197,5 @@ public abstract class ContextHandler<CHANNEL extends Channel>
 	 */
 	protected abstract Publisher<Void> onCloseOrRelease(Channel channel);
 
-	static final Logger log = Loggers.getLogger(ContextHandler.class);
+	static final Logger log = Loggers.getLogger(ChannelSink.class);
 }

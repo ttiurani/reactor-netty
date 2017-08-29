@@ -22,7 +22,7 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.EventLoopGroup;
 import io.netty.handler.ssl.JdkSslContext;
 import reactor.core.publisher.Mono;
-import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.DisposableServer;
 import reactor.ipc.netty.http.HttpResources;
 import reactor.ipc.netty.resources.LoopResources;
 import reactor.ipc.netty.tcp.TcpServer;
@@ -46,7 +46,7 @@ final class HttpServerBind extends HttpServer {
 	}
 
 	@Override
-	protected Mono<? extends Connection> bind(ServerBootstrap b) {
+	protected Mono<? extends DisposableServer> bind(ServerBootstrap b) {
 		if (b.config()
 		     .group() == null) {
 			LoopResources loops = HttpResources.get();
