@@ -20,6 +20,8 @@ import java.util.Queue;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
+import javax.annotation.Nullable;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufHolder;
 import io.netty.channel.Channel;
@@ -59,7 +61,7 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 
 	FluxReceive(ChannelOperations<?, ?> parent) {
 		this.parent = parent;
-		this.channel = parent.channel;
+		this.channel = parent.channel();
 		this.eventLoop = channel.eventLoop();
 		CANCEL.lazySet(this, () -> {
 			if (eventLoop.inEventLoop()) {
@@ -133,7 +135,7 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 		return false;
 	}
 
-	final void cleanQueue(Queue<Object> q){
+	final void cleanQueue(@Nullable Queue<Object> q){
 		if (q != null) {
 			Object o;
 			while ((o = q.poll()) != null) {
@@ -145,9 +147,9 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 		}
 	}
 
-	final boolean drainReceiver() {
+	final void drainReceiver() {
 		if(WIP.getAndIncrement(this) != 0){
-			return false;
+			return;
 		}
 		int missed = 1;
 		for(;;) {
@@ -159,12 +161,9 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 				if (d && getPending() == 0) {
 					Throwable ex = inboundError;
 					if (ex != null) {
-						parent.listener.onError(channel, ex);
+						parent.listener.onReceiveError(channel, ex);
 					}
-					else {
-						parent.listener.onSetup(channel, null);
-					}
-					return false;
+					return;
 				}
 				missed = WIP.addAndGet(this, -missed);
 				if(missed == 0){
@@ -179,7 +178,8 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 			while (e != r) {
 				if (isCancelled()) {
 					cleanQueue(q);
-					return false;
+					parent.listener.onDispose(channel);
+					return;
 				}
 
 				d = inboundDone;
@@ -188,7 +188,7 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 
 				if (d && empty) {
 					terminateReceiver(q, a);
-					return false;
+					return;
 				}
 
 				if (empty) {
@@ -206,13 +206,14 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 			}
 
 			if (isCancelled()) {
+				parent.listener.onDispose(channel);
 				cleanQueue(q);
-				return false;
+				return;
 			}
 
 			if (inboundDone && (q == null || q.isEmpty())) {
 				terminateReceiver(q, a);
-				return false;
+				return;
 			}
 
 			if (r == Long.MAX_VALUE) {
@@ -223,7 +224,8 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 				if(missed == 0){
 					break;
 				}
-				return true;
+				receiverFastpath = true;
+				return;
 			}
 
 			if ((receiverDemand -= e) > 0L || e > 0L) {
@@ -235,7 +237,7 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 				break;
 			}
 		}
-		return false;
+		return;
 	}
 
 	final void startReceiver(CoreSubscriber<? super Object> s) {
@@ -311,9 +313,7 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 				}
 			}
 			q.offer(msg);
-			if (drainReceiver()) {
-				receiverFastpath = true;
-			}
+			drainReceiver();
 		}
 	}
 
@@ -344,7 +344,7 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 			channel.close();
 		}
 		if (receiverFastpath && receiver != null) {
-			parent.listener.onError(channel, err);
+			parent.listener.onReceiveError(channel, err);
 			receiver.onError(err);
 			return true;
 		}
@@ -354,13 +354,13 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 		return false;
 	}
 
-	final void terminateReceiver(Queue<?> q, CoreSubscriber<?> a) {
+	final void terminateReceiver(@Nullable Queue<?> q, CoreSubscriber<?> a) {
 		if (q != null) {
 			q.clear();
 		}
 		Throwable ex = inboundError;
 		if (ex != null) {
-			parent.listener.onError(channel, ex);
+			parent.listener.onReceiveError(channel, ex);
 			a.onError(ex);
 		}
 		else {

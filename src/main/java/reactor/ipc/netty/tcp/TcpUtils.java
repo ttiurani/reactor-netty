@@ -20,6 +20,8 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.function.Consumer;
 
+import javax.annotation.Nullable;
+
 import io.netty.bootstrap.AbstractBootstrap;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
@@ -87,6 +89,7 @@ final class TcpUtils {
 		return b;
 	}
 
+	@Nullable
 	static SslContext findSslContext(Bootstrap b) {
 		SslSupportConsumer c =
 				BootstrapHandlers.findConfiguration(SslSupportConsumer.class,
@@ -96,6 +99,7 @@ final class TcpUtils {
 		return c != null ? c.sslProvider.getSslContext() : null;
 	}
 
+	@Nullable
 	static SslContext findSslContext(ServerBootstrap b) {
 		SslSupportConsumer c =
 				BootstrapHandlers.findConfiguration(SslSupportConsumer.class,
@@ -275,8 +279,8 @@ final class TcpUtils {
 	static final Logger                                         log           =
 			Loggers.getLogger(TcpUtils.class);
 
-	static final ChannelOperations.OnNew TCP_OPS =
-			(ch, c, msg) -> ChannelOperations.bind(ch, c);
+	static final ChannelOperations.OnSetup TCP_OPS =
+			(connection, events, msg) -> ChannelOperations.bind(connection, events);
 
 	static final Consumer<SslProvider.SslContextSpec> SSL_DEFAULT_SPEC =
 			sslProviderBuilder -> sslProviderBuilder.sslContext(TcpServerSecure.DEFAULT_SSL_CONTEXT);

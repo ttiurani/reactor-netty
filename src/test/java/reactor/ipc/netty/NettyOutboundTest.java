@@ -61,7 +61,7 @@ public class NettyOutboundTest {
 	public void onWriteIdleReplaces() throws Exception {
 		EmbeddedChannel channel = new EmbeddedChannel();
 		NettyOutbound outbound =
-				ChannelOperations.bind(channel, ConnectionEvents.emptyListener());
+				ChannelOperations.bind(() -> channel, ConnectionEvents.emptyListener());
 
 		AtomicLong idle1 = new AtomicLong();
 		AtomicLong idle2 = new AtomicLong();
@@ -109,7 +109,7 @@ public class NettyOutboundTest {
 				});
 
 		NettyOutbound outbound =
-				new ChannelOperations<NettyInbound, NettyOutbound>(channel, ConnectionEvents.emptyListener()) {
+				new ChannelOperations<NettyInbound, NettyOutbound>(() -> channel, ConnectionEvents.emptyListener()) {
 			@Override
 			public FileChunkedStrategy getFileChunkedStrategy() {
 				return FILE_CHUNKED_STRATEGY_1024_NOPIPELINE;
@@ -171,7 +171,7 @@ public class NettyOutboundTest {
 				});
 
 		NettyOutbound outbound =
-				new ChannelOperations<NettyInbound, NettyOutbound>(channel, ConnectionEvents.emptyListener()) {
+				new ChannelOperations<NettyInbound, NettyOutbound>(() -> channel, ConnectionEvents.emptyListener()) {
 					@Override
 					public FileChunkedStrategy getFileChunkedStrategy() {
 						return FILE_CHUNKED_STRATEGY_1024_NOPIPELINE;
@@ -232,7 +232,7 @@ public class NettyOutboundTest {
 				});
 
 		NettyOutbound outbound =
-				new ChannelOperations<NettyInbound, NettyOutbound>(channel, ConnectionEvents.emptyListener()) {
+				new ChannelOperations<NettyInbound, NettyOutbound>(() -> channel, ConnectionEvents.emptyListener()) {
 					@Override
 					public FileChunkedStrategy getFileChunkedStrategy() {
 						return FILE_CHUNKED_STRATEGY_1024_NOPIPELINE;

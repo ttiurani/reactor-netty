@@ -34,7 +34,6 @@ import reactor.core.publisher.Mono;
  * @author Stephane Maldini
  * @since 0.6
  */
-@FunctionalInterface
 public interface PoolResources extends Disposable {
 
 	/**
@@ -44,8 +43,7 @@ public interface PoolResources extends Disposable {
 	 */
 	int DEFAULT_POOL_MAX_CONNECTION =
 			Integer.parseInt(System.getProperty("reactor.ipc.netty.pool.maxConnections",
-			"" + Math.max(Runtime.getRuntime()
-			            .availableProcessors(), 8) * 2));
+			"" + 1000));
 
 	/**
 	 * Default acquisition timeout before error. If -1 will never wait to
@@ -156,6 +154,13 @@ public interface PoolResources extends Disposable {
 			Bootstrap bootstrap,
 			Consumer<? super Channel> onChannelCreate,
 			EventLoopGroup group);
+
+	/**
+	 * Return true if a persistent connection exist to this address
+	 *
+	 * @return true if a persistent connection exist to this address
+	 */
+	boolean isPooling(SocketAddress address);
 
 	@Override
 	default void dispose() {

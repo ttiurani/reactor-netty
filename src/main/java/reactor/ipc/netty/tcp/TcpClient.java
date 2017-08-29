@@ -79,7 +79,7 @@ public abstract class TcpClient {
 	 * @return a {@link TcpClient}
 	 */
 	public static TcpClient create() {
-		return TcpClientPooledConnection.INSTANCE;
+		return TcpClientAcquire.INSTANCE;
 	}
 
 	/**
@@ -91,7 +91,7 @@ public abstract class TcpClient {
 	 * @return a {@link TcpClient}
 	 */
 	public static TcpClient create(PoolResources poolResources) {
-		return new TcpClientPooledConnection(poolResources);
+		return new TcpClientAcquire(poolResources);
 	}
 
 	/**
@@ -100,7 +100,7 @@ public abstract class TcpClient {
 	 * @return a {@link TcpClient}
 	 */
 	public static TcpClient createSingle() {
-		return TcpClientSingleConnection.INSTANCE;
+		return TcpClientConnect.INSTANCE;
 	}
 
 	/**

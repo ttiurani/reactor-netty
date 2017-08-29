@@ -254,9 +254,9 @@ public abstract class HttpServer {
 		return DEFAULT_TCP_SERVER;
 	}
 
-	static final ChannelOperations.OnNew HTTP_OPS = new ChannelOperations.OnNew() {
+	static final ChannelOperations.OnSetup HTTP_OPS = new ChannelOperations.OnSetup() {
 		@Override
-		public ChannelOperations<?, ?> create(Channel c,
+		public ChannelOperations<?, ?> create(Connection c,
 				ConnectionEvents listener,
 				Object msg) {
 			return HttpServerOperations.bindHttp(c, listener, msg);

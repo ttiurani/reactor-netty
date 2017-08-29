@@ -24,7 +24,6 @@ import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufHolder;
-import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInboundHandler;
 import io.netty.channel.CombinedChannelDuplexHandler;
@@ -41,8 +40,8 @@ import io.netty.handler.stream.ChunkedInput;
 import io.netty.handler.stream.ChunkedNioFile;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Mono;
-import reactor.ipc.netty.ConnectionEvents;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.ConnectionEvents;
 import reactor.ipc.netty.FutureMono;
 import reactor.ipc.netty.NettyInbound;
 import reactor.ipc.netty.NettyOutbound;
@@ -67,17 +66,18 @@ public abstract class HttpOperations<INBOUND extends NettyInbound, OUTBOUND exte
 	static final int HEADERS_SENT = 1;
 	static final int BODY_SENT    = 2;
 
-	protected HttpOperations(Channel ioChannel,
-			HttpOperations<INBOUND, OUTBOUND> replaced) {
-		super(ioChannel, replaced);
+	protected HttpOperations(HttpOperations<INBOUND, OUTBOUND> replaced) {
+		super(replaced);
 		this.statusAndHeadersSent = replaced.statusAndHeadersSent;
 	}
 
-	protected HttpOperations(Channel ioChannel,
+	protected HttpOperations(Connection connection,
 			ConnectionEvents listener) {
-		super(ioChannel, listener);
+		super(connection, listener);
 		//reset channel to manual read if re-used
-		ioChannel.config().setAutoRead(false);
+		connection.channel()
+		          .config()
+		          .setAutoRead(false);
 	}
 
 	/**

@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
+import javax.annotation.Nullable;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufHolder;
@@ -162,7 +163,7 @@ final class ChannelOperationsHandler extends ChannelDuplexHandler
 			ops.onInboundError(err);
 		}
 		else {
-			listener.onError(ctx.channel(), err);
+			listener.onReceiveError(ctx.channel(), err);
 		}
 	}
 
@@ -248,7 +249,7 @@ final class ChannelOperationsHandler extends ChannelDuplexHandler
 		}
 	}
 
-	ChannelFuture doWrite(Object msg, ChannelPromise promise, PublisherSender inner) {
+	ChannelFuture doWrite(Object msg, ChannelPromise promise, @Nullable PublisherSender inner) {
 		if (flushOnEach || //fastpath
 				inner == null && pendingWrites.isEmpty() || //last drained element
 				!ctx.channel()

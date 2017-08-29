@@ -385,7 +385,7 @@ final class ReactorNetty {
 
 	static final ConnectionEvents NOOP_LISTENER = new ConnectionEvents() {
 		@Override
-		public void onConnection(Connection connection) {
+		public void onStart(Connection connection) {
 
 		}
 
@@ -395,7 +395,7 @@ final class ReactorNetty {
 		}
 
 		@Override
-		public void onError(Channel channel, Throwable error) {
+		public void onReceiveError(Channel channel, Throwable error) {
 
 		}
 

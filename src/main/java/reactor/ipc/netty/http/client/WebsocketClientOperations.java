@@ -57,7 +57,7 @@ final class WebsocketClientOperations extends HttpClientOperations
 	WebsocketClientOperations(URI currentURI,
 			String protocols,
 			HttpClientOperations replaced) {
-		super(replaced.channel(), replaced);
+		super(replaced);
 
 		Channel channel = channel();
 
@@ -164,7 +164,7 @@ final class WebsocketClientOperations extends HttpClientOperations
 					}
 				}
 
-				listener().fireConnectionActive(this);
+				listener().onStart(this);
 				handshakerResult.trySuccess();
 			}
 			return;

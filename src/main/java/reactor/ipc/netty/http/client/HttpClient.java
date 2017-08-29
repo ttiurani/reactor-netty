@@ -188,7 +188,7 @@ public abstract class HttpClient {
 	 * @return a {@link HttpClient}
 	 */
 	public static HttpClient prepare() {
-		return HttpClientConnection.INSTANCE;
+		return HttpClientConnect.INSTANCE;
 	}
 
 	/**
@@ -197,7 +197,7 @@ public abstract class HttpClient {
 	 * @return a {@link HttpClient}
 	 */
 	public static HttpClient from(TcpClient tcpClient) {
-		return new HttpClientConnection(tcpClient);
+		return new HttpClientConnect(tcpClient);
 	}
 
 	/**
@@ -426,12 +426,12 @@ public abstract class HttpClient {
 	abstract String uri();
 
 
-	final static HttpMethod              WS           = new HttpMethod("WS");
-	final static String                  WS_SCHEME    = "ws";
-	final static String                  WSS_SCHEME   = "wss";
-	final static String                  HTTP_SCHEME  = "http";
-	final static String                  HTTPS_SCHEME = "https";
-	static final ChannelOperations.OnNew HTTP_OPS     =
+	final static HttpMethod                WS           = new HttpMethod("WS");
+	final static String                    WS_SCHEME    = "ws";
+	final static String                    WSS_SCHEME   = "wss";
+	final static String                    HTTP_SCHEME  = "http";
+	final static String                    HTTPS_SCHEME = "https";
+	static final ChannelOperations.OnSetup HTTP_OPS     =
 			(ch, c, msg) -> HttpClientOperations.bindHttp(ch, c);
 
 	static final Function<Bootstrap, Bootstrap> HTTP_OPS_CONF = b -> {

@@ -69,6 +69,11 @@ public class HttpResourcesTest {
 				return null;
 			}
 
+			@Override
+			public boolean isPooling(SocketAddress address) {
+				return false;
+			}
+
 			public Mono<Void> disposeLater() {
 				return Mono.<Void>empty().doOnSuccess(c -> poolDisposed.set(true));
 			}

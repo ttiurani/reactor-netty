@@ -33,14 +33,12 @@ import io.netty.channel.DefaultFileRegion;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedInput;
 import io.netty.handler.stream.ChunkedNioFile;
-import io.netty.util.Attribute;
 import io.netty.util.AttributeKey;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
 import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Exceptions;
-import reactor.core.publisher.DirectProcessor;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Operators;
@@ -58,8 +56,7 @@ import reactor.util.Loggers;
 import reactor.util.context.Context;
 
 /**
- * A bridge between an immutable {@link Channel} and {@link NettyInbound} /
- * {@link NettyOutbound}
+ * {@link NettyInbound} and {@link NettyOutbound}  that apply to a {@link Connection}
  *
  * @author Stephane Maldini
  * @since 0.6
@@ -71,7 +68,7 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	 * Create a new {@link ChannelOperations} attached to the {@link Channel} attribute
 	 * {@link #OPERATIONS_KEY}. Attach the {@link NettyPipeline#ReactiveBridge} handle.
 	 *
-	 * @param channel the new {@link Channel} connection
+	 * @param connection the new {@link Connection} connection
 	 * @param context the events callback
 	 * @param <INBOUND> the {@link NettyInbound} type
 	 * @param <OUTBOUND> the {@link NettyOutbound} type
@@ -79,88 +76,69 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	 * @return the created {@link ChannelOperations} bridge
 	 */
 	public static <INBOUND extends NettyInbound, OUTBOUND extends NettyOutbound> ChannelOperations<INBOUND, OUTBOUND> bind(
-			Channel channel,
+			Connection connection,
 			ConnectionEvents context) {
 		@SuppressWarnings("unchecked") ChannelOperations<INBOUND, OUTBOUND> ops =
-				new ChannelOperations<>(channel, context);
+				new ChannelOperations<>(connection, context);
 
 		return ops;
 	}
 
 	/**
-	 * Return the current {@link Channel} bound
-	 * {@link ChannelOperations} or null if none
+	 * Return the current {@link Channel} bound {@link ChannelOperations} or null if none
 	 *
 	 * @param ch the current {@link Channel}
 	 *
-	 * @return the current {@link Channel} bound
-	 * {@link ChannelOperations} or null if none
+	 * @return the current {@link Channel} bound {@link ChannelOperations} or null if none
 	 */
+	@Nullable
 	public static ChannelOperations<?, ?> get(Channel ch) {
 		return ch.attr(OPERATIONS_KEY)
-		          .get();
+		         .get();
 	}
 
+	final Connection       connection;
+	final FluxReceive      inbound;
+	final ConnectionEvents listener;
 
-	@Nullable
-	static ChannelOperations<?, ?> tryGetAndSet(Channel ch, ChannelOperations<?, ?> ops) {
-		Attribute<ChannelOperations> attr = ch.attr(ChannelOperations.OPERATIONS_KEY);
-		for (; ; ) {
-			ChannelOperations<?, ?> op = attr.get();
-			if (op != null) {
-				return op;
-			}
-
-			if (attr.compareAndSet(null, ops)) {
-				return null;
-			}
-		}
-	}
-
-	final    Channel               channel;
-	final    FluxReceive           inbound;
-	final    DirectProcessor<Void> onInactive;
-	final    ConnectionEvents      listener;
 	@SuppressWarnings("unchecked")
-	volatile Subscription          outboundSubscription;
-	protected ChannelOperations(Channel channel,
-			ChannelOperations<INBOUND, OUTBOUND> replaced) {
-		this(channel, replaced.listener, replaced.onInactive);
+	volatile Subscription outboundSubscription;
+
+	protected ChannelOperations(ChannelOperations<INBOUND, OUTBOUND> replaced) {
+		this(replaced.connection, replaced.listener);
 	}
 
-	protected ChannelOperations(Channel channel, ConnectionEvents listener) {
-		this(channel, listener, DirectProcessor.create());
-	}
-
-	protected ChannelOperations(Channel channel,
-			ConnectionEvents listener,
-			DirectProcessor<Void> processor) {
-		this.channel = Objects.requireNonNull(channel, "channel");
+	protected ChannelOperations(Connection connection, ConnectionEvents listener) {
+		this.connection = Objects.requireNonNull(connection, "connection");
 		this.listener = listener;
 		this.inbound = new FluxReceive(this);
-		this.onInactive = processor;
-		Mono.fromDirect(listener.onCloseOrRelease(channel))
-		    .subscribe(onInactive);
+
+		connection.channel()
+		          .attr(OPERATIONS_KEY)
+		          .set(this);
 	}
 
 	@Override
 	public ByteBufAllocator alloc() {
-		return channel.alloc();
+		return connection.channel()
+		                 .alloc();
 	}
 
 	@Override
 	public final NettyOutbound sendObject(Publisher<?> dataStream) {
-		return then(FutureMono.deferFuture(() -> channel.writeAndFlush(dataStream)));
+		return then(FutureMono.deferFuture(() -> connection.channel()
+		                                                   .writeAndFlush(dataStream)));
 	}
 
 	@Override
 	public final NettyOutbound sendObject(Object msg) {
-		return then(FutureMono.deferFuture(() -> channel.writeAndFlush(msg)));
+		return then(FutureMono.deferFuture(() -> connection.channel()
+		                                                   .writeAndFlush(msg)));
 	}
 
 	@Override
 	public final Channel channel() {
-		return channel;
+		return connection.channel();
 	}
 
 	@Override
@@ -172,7 +150,6 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	@Override
 	public void dispose() {
 		inbound.cancel();
-		//TODO shouldn't super.dispose be called there / channel closed?
 	}
 
 	@Override
@@ -187,12 +164,12 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 
 	@Override
 	public final Mono<Void> onDispose() {
-		return Mono.fromDirect(onInactive);
+		return connection.onDispose();
 	}
 
 	@Override
 	public Connection onDispose(final Disposable onDispose) {
-		onInactive.subscribe(null, e -> onDispose.dispose(), onDispose::dispose);
+		connection.onDispose(onDispose);
 		return this;
 	}
 
@@ -211,7 +188,7 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 		Subscription s =
 				OUTBOUND_CLOSE.getAndSet(this, Operators.cancelledSubscription());
 		if (s == Operators.cancelledSubscription() || isDisposed()) {
-			if(log.isDebugEnabled()){
+			if (log.isDebugEnabled()) {
 				log.error("An outbound error could not be processed", t);
 			}
 			return;
@@ -237,12 +214,15 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 
 	@Override
 	public final ByteBufFlux receive() {
-		return ByteBufFlux.fromInbound(receiveObject(), channel.alloc());
+		return ByteBufFlux.fromInbound(receiveObject(),
+				connection.channel()
+				          .alloc());
 	}
 
 	@Override
 	public String toString() {
-		return channel.toString();
+		return connection.channel()
+		                 .toString();
 	}
 
 	/**
@@ -251,7 +231,8 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	 * @return true if inbound traffic is not expected anymore
 	 */
 	protected final boolean isInboundDone() {
-		return inbound.inboundDone || !channel.isActive();
+		return inbound.inboundDone || !connection.channel()
+		                                         .isActive();
 	}
 
 	/**
@@ -260,9 +241,9 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	 * @return true if inbound traffic is not expected anymore
 	 */
 	protected final boolean isInboundCancelled() {
-		return inbound.isCancelled() || !channel.isActive();
+		return inbound.isCancelled() || !connection.channel()
+		                                           .isActive();
 	}
-
 
 	/**
 	 * Return true if inbound traffic is not expected anymore
@@ -270,17 +251,8 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	 * @return true if inbound traffic is not expected anymore
 	 */
 	protected final boolean isOutboundDone() {
-		return outboundSubscription == Operators.cancelledSubscription() || !channel.isActive();
-	}
-
-	/**
-	 * Register the operations into the protected attribute key to be available to
-	 * {@link #get(Channel)}.
-	 *
-	 */
-	@SuppressWarnings("unchecked")
-	public final void register() {
-		channel.attr(OPERATIONS_KEY).set(this);
+		return outboundSubscription == Operators.cancelledSubscription() || !connection.channel()
+		                                                                               .isActive();
 	}
 
 	/**
@@ -301,8 +273,9 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	 * @return true if replaced
 	 */
 	protected final boolean replace(@Nullable ChannelOperations<?, ?> ops) {
-		return channel.attr(OPERATIONS_KEY)
-		              .compareAndSet(this, ops);
+		return connection.channel()
+		                 .attr(OPERATIONS_KEY)
+		                 .compareAndSet(this, ops);
 	}
 
 	/**
@@ -312,14 +285,11 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 
 	}
 
-
 	/**
 	 * React on inbound completion (last packet)
 	 */
 	protected void onInboundComplete() {
-		if (inbound.onInboundComplete()) {
-			listener.onConnection(this);
-		}
+		inbound.onInboundComplete();
 	}
 
 	/**
@@ -327,7 +297,9 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	 */
 	protected void onOutboundComplete() {
 		if (log.isDebugEnabled()) {
-			log.debug("[{}] {} User Handler requesting close connection", formatName(), channel());
+			log.debug("[{}] {} User Handler requesting close connection",
+					formatName(),
+					channel());
 		}
 		markPersistent(false);
 		onHandlerTerminate();
@@ -354,7 +326,9 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	protected final boolean discreteRemoteClose(Throwable err) {
 		if (AbortedException.isConnectionReset(err)) {
 			if (log.isDebugEnabled()) {
-				log.debug("{} [{}] Connection closed remotely", channel.toString(),
+				log.debug("{} [{}] Connection closed remotely",
+						connection.channel()
+						          .toString(),
 						formatName(),
 						err);
 			}
@@ -371,19 +345,20 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	 */
 	protected final void onHandlerTerminate() {
 		if (replace(null)) {
-			if(log.isTraceEnabled()){
-				log.trace("{} Disposing ChannelOperation from a channel", channel(), new Exception
-						("ChannelOperation terminal stack"));
+			if (log.isTraceEnabled()) {
+				log.trace("{} Disposing ChannelOperation from a channel",
+						channel(),
+						new Exception("ChannelOperation terminal stack"));
 			}
 			try {
 				Operators.terminate(OUTBOUND_CLOSE, this);
-				onInactive.onComplete(); //signal senders and other interests
 				onInboundComplete(); // signal receiver
 
 			}
 			finally {
-				channel.pipeline()
-				       .fireUserEventTriggered(NettyPipeline.handlerTerminatedEvent());
+				connection.channel()
+				          .pipeline()
+				          .fireUserEventTriggered(NettyPipeline.handlerTerminatedEvent());
 			}
 		}
 	}
@@ -395,20 +370,27 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	 */
 	protected final void onInboundError(Throwable err) {
 		discreteRemoteClose(err);
-		if (inbound.onInboundError(err)) {
-			listener.onError(channel, err);
-		}
+		inbound.onInboundError(err);
 	}
 
 	/**
-	 * Return the available parent {@link ChannelSink} for user-facing lifecycle
+	 * Return the available parent {@link ConnectionEvents} for user-facing lifecycle
 	 * handling
 	 *
-	 * @return the available parent {@link ChannelSink}for user-facing lifecycle
+	 * @return the available parent {@link ConnectionEvents}for user-facing lifecycle
 	 * handling
 	 */
 	protected final ConnectionEvents listener() {
 		return listener;
+	}
+
+	/**
+	 * Return the delegate IO  {@link Connection} for  low-level IO access
+	 *
+	 * @return the delegate IO  {@link Connection} for  low-level IO access
+	 */
+	protected final Connection connection() {
+		return connection;
 	}
 
 	/**
@@ -433,15 +415,17 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	@Override
 	public NettyOutbound sendFile(Path file, long position, long count) {
 		Objects.requireNonNull(file);
-		if (channel.pipeline()
-		           .get(SslHandler.class) != null) {
+		if (connection.channel()
+		              .pipeline()
+		              .get(SslHandler.class) != null) {
 			return sendFileChunked(file);
 		}
 
 		return then(Mono.using(() -> FileChannel.open(file, StandardOpenOption.READ),
-				fc -> FutureMono.from(channel.writeAndFlush(new DefaultFileRegion(fc,
-						position,
-						count))),
+				fc -> FutureMono.from(connection.channel()
+				                                .writeAndFlush(new DefaultFileRegion(fc,
+						                                position,
+						                                count))),
 				fc -> {
 					try {
 						fc.close();
@@ -455,16 +439,18 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 		Objects.requireNonNull(file);
 		final FileChunkedStrategy strategy = getFileChunkedStrategy();
 
-		if (channel.pipeline()
-		           .get(NettyPipeline.ChunkedWriter) == null) {
+		if (connection.channel()
+		              .pipeline()
+		              .get(NettyPipeline.ChunkedWriter) == null) {
 			strategy.preparePipeline(this);
 		}
 
 		return then(Mono.using(() -> FileChannel.open(file, StandardOpenOption.READ),
 				fc -> {
 					try {
-						return FutureMono.deferFuture(() -> channel.writeAndFlush(
-								(strategy.chunkFile(fc))));
+						return FutureMono.deferFuture(() -> connection.channel()
+						                                              .writeAndFlush((strategy.chunkFile(
+								                                              fc))));
 					}
 					catch (Exception e) {
 						return Mono.error(e);
@@ -485,42 +471,46 @@ public class ChannelOperations<INBOUND extends NettyInbound, OUTBOUND extends Ne
 	 * A {@link ChannelOperations} factory
 	 */
 	@FunctionalInterface
-	public interface OnNew {
+	public interface OnSetup {
 
 		/**
-		 * Create a new {@link ChannelOperations} given a netty channel, a parent
-		 * {@link ChannelSink} and an optional message (nullable).
+		 * Create a new {@link ChannelOperations} given a netty channel, a parent {@link
+		 * ConnectionEvents} and an optional message (nullable).
 		 *
-		 * @param c a {@link Channel}
+		 * @param c a {@link Connection}
 		 * @param listener a {@link ConnectionEvents}
 		 * @param msg an optional message
 		 *
 		 * @return a new {@link ChannelOperations}
 		 */
-		ChannelOperations<?, ?> create(Channel c, ConnectionEvents listener, Object msg);
+		ChannelOperations<?, ?> create(Connection c, ConnectionEvents listener,
+				@Nullable  Object msg);
 
 		/**
-		 * True if {@link ChannelOperations} should be created by
-		 * {@link ChannelOperationsHandler} on channelActive event
+		 * True if {@link ChannelOperations} should be created by {@link
+		 * ChannelOperationsHandler} on channelActive event
 		 *
-		 * @return true if {@link ChannelOperations} should be created by
-		 * {@link ChannelOperationsHandler} on channelActive event
+		 * @return true if {@link ChannelOperations} should be created by {@link
+		 * ChannelOperationsHandler} on channelActive event
 		 */
-		default boolean createOnConnected(){
+		default boolean createOnConnected() {
 			return true;
 		}
 	}
+
 	/**
 	 * The attribute in {@link Channel} to store the current {@link ChannelOperations}
 	 */
-	protected static final AttributeKey<ChannelOperations> OPERATIONS_KEY = AttributeKey.newInstance("nettyOperations");
+	protected static final AttributeKey<ChannelOperations> OPERATIONS_KEY =
+			AttributeKey.newInstance("nettyOperations");
 
-	static final Logger     log  = Loggers.getLogger(ChannelOperations.class);
+	static final Logger log = Loggers.getLogger(ChannelOperations.class);
 
 	static final AtomicReferenceFieldUpdater<ChannelOperations, Subscription>
-			OUTBOUND_CLOSE = AtomicReferenceFieldUpdater.newUpdater(ChannelOperations.class,
-			Subscription.class,
-			"outboundSubscription");
+			OUTBOUND_CLOSE =
+			AtomicReferenceFieldUpdater.newUpdater(ChannelOperations.class,
+					Subscription.class,
+					"outboundSubscription");
 
 	static final FileChunkedStrategy<ByteBuf> FILE_CHUNKED_STRATEGY_BUFFER =
 			new AbstractFileChunkedStrategy<ByteBuf>() {

@@ -17,12 +17,12 @@
 package reactor.ipc.netty.tcp;
 
 import java.util.Objects;
-import java.util.function.Supplier;
+import javax.annotation.Nullable;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.EventLoopGroup;
 import io.netty.handler.ssl.JdkSslContext;
-import reactor.ipc.netty.channel.BootstrapHandlers;
+import io.netty.handler.ssl.SslContext;
 import reactor.ipc.netty.resources.LoopResources;
 
 /**
@@ -40,16 +40,22 @@ final class TcpClientRunOn extends TcpClientOperator {
 	}
 
 	@Override
-	@SuppressWarnings("unchecked")
 	public Bootstrap configure() {
 		Bootstrap b = source.configure();
 
-		boolean useNative = preferNative && !(sslContext() instanceof JdkSslContext);
-		EventLoopGroup elg = loopResources.onClient(useNative);
-
-		b.channel(loopResources.onChannel(elg))
-		 .group(elg);
+		configure(b, preferNative, loopResources, sslContext());
 
 		return b;
+	}
+
+	static void configure(Bootstrap b,
+			boolean preferNative,
+			LoopResources resources,
+			@Nullable SslContext sslContext) {
+		boolean useNative = preferNative && !(sslContext instanceof JdkSslContext);
+		EventLoopGroup elg = resources.onClient(useNative);
+
+		b.group(elg)
+		 .channel(resources.onChannel(elg));
 	}
 }

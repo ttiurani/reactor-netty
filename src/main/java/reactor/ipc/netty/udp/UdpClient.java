@@ -364,7 +364,7 @@ public abstract class UdpClient {
 
 	static {
 		BootstrapHandlers.channelOperationFactory(DEFAULT_BOOTSTRAP,
-				(ch, c, msg) -> UdpOperations.bind(ch, c));
+				(ch, c, msg) -> UdpOperations.bindUdp(ch, c));
 	}
 
 	static final LoggingHandler LOGGING_HANDLER = new LoggingHandler(UdpClient.class);

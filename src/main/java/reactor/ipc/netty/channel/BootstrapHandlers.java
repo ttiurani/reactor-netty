@@ -69,6 +69,26 @@ public abstract class BootstrapHandlers {
 	}
 
 	/**
+	 * Finalize a server bootstrap pipeline configuration by turning it into a
+	 * {@link ChannelInitializer} to safely initialize each child channel.
+	 *
+	 * @param b a server bootstrap
+	 * @param listener a server event listener
+	 */
+	public static void finalize(Bootstrap b, ConnectionEvents listener) {
+		Objects.requireNonNull(b, "bootstrap");
+		Objects.requireNonNull(listener, "listener");
+
+		ChannelHandler handler = b.config().handler();
+		if (handler instanceof BootstrapPipelineHandler){
+			@SuppressWarnings("unchecked")
+			BootstrapPipelineHandler pipeline = (BootstrapPipelineHandler)handler;
+
+			b.handler(new BootstrapInitializerHandler(pipeline, listener));
+		}
+	}
+
+	/**
 	 * Find the given typed configuration consumer or return null;
 	 *
 	 * @param clazz the type of configuration to find
@@ -123,32 +143,32 @@ public abstract class BootstrapHandlers {
 	}
 
 	/**
-	 * Set a {@link ChannelOperations.OnNew} to the passed bootstrap.
+	 * Set a {@link ChannelOperations.OnSetup} to the passed bootstrap.
 	 *
 	 * @param b the bootstrap to scan
-	 * @param opsFactory a new {@link ChannelOperations.OnNew} factory
+	 * @param opsFactory a new {@link ChannelOperations.OnSetup} factory
 	 */
 	public static void channelOperationFactory(AbstractBootstrap<?, ?> b,
-			ChannelOperations.OnNew opsFactory) {
+			ChannelOperations.OnSetup opsFactory) {
 		Objects.requireNonNull(b, "bootstrap");
 		Objects.requireNonNull(opsFactory, "opsFactory");
 		b.option(OPS_OPTION, opsFactory);
 	}
 
 	/**
-	 * Obtain and remove the current {@link ChannelOperations.OnNew} from the bootstrap.
+	 * Obtain and remove the current {@link ChannelOperations.OnSetup} from the bootstrap.
 	 *
 	 * @param b the bootstrap to scan
 	 *
-	 * @return current {@link ChannelOperations.OnNew} factory or null
+	 * @return current {@link ChannelOperations.OnSetup} factory or null
 	 *
 	 */
 	@SuppressWarnings("unchecked")
-	public static ChannelOperations.OnNew channelOperationFactory(AbstractBootstrap<?, ?> b) {
+	public static ChannelOperations.OnSetup channelOperationFactory(AbstractBootstrap<?, ?> b) {
 		Objects.requireNonNull(b, "bootstrap");
-		ChannelOperations.OnNew ops = (ChannelOperations.OnNew) b.config()
-		                                                         .options()
-		                                                         .get(OPS_OPTION);
+		ChannelOperations.OnSetup ops = (ChannelOperations.OnSetup) b.config()
+		                                                             .options()
+		                                                             .get(OPS_OPTION);
 		b.option(OPS_OPTION, null);
 		return ops;
 	}
@@ -359,6 +379,6 @@ public abstract class BootstrapHandlers {
 	BootstrapHandlers() {
 	}
 
-	final static ChannelOption<ChannelOperations.OnNew> OPS_OPTION = ChannelOption
+	final static ChannelOption<ChannelOperations.OnSetup> OPS_OPTION = ChannelOption
 			.newInstance("ops_factory");
 }

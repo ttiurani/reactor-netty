@@ -17,65 +17,34 @@ package reactor.ipc.netty.http.client;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerAdapter;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.http.DefaultLastHttpContent;
 import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.codec.json.JsonObjectDecoder;
 import io.netty.util.CharsetUtil;
-import io.netty.util.concurrent.Future;
 import org.junit.Test;
-import org.reactivestreams.Publisher;
-import reactor.core.publisher.Mono;
-import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.ConnectionEvents;
 import reactor.ipc.netty.NettyPipeline;
-import reactor.ipc.netty.channel.ChannelSink;
 
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThat;
 
 /**
  * @author Simon Baslé
  */
 public class HttpClientOperationsTest {
 
-	ChannelSink<Connection>
-			handler = new ChannelSink<Channel>((a, b, c) -> null, null, null, null, null) {
-		@Override
-		public void fireConnectionActive(Connection context) {
-
-		}
-
-		@Override
-		public void setFuture(Future<?> future) {
-
-		}
-
-		@Override
-		protected Publisher<Void> onCloseOrRelease(Channel channel) {
-			return Mono.never();
-		}
-
-		@Override
-		public void accept(Channel channel) {
-
-		}
-
-		@Override
-		public void dispose() {
-
-		}
-	};
 
 	@Test
 	public void addDecoderReplaysLastHttp() throws Exception {
 		ByteBuf buf = Unpooled.copiedBuffer("{\"foo\":1}", CharsetUtil.UTF_8);
 		EmbeddedChannel channel = new EmbeddedChannel();
-		HttpClientOperations ops = new HttpClientOperations(channel,
-				(response, request) -> null, handler);
+		HttpClientOperations ops = new HttpClientOperations(() -> channel,
+				ConnectionEvents.emptyListener());
 
 		ops.addHandler(new JsonObjectDecoder());
 		channel.writeInbound(new DefaultLastHttpContent(buf));
@@ -90,8 +59,8 @@ public class HttpClientOperationsTest {
 	public void addNamedDecoderReplaysLastHttp() throws Exception {
 		ByteBuf buf = Unpooled.copiedBuffer("{\"foo\":1}", CharsetUtil.UTF_8);
 		EmbeddedChannel channel = new EmbeddedChannel();
-		HttpClientOperations ops = new HttpClientOperations(channel,
-				(response, request) -> null, handler);
+		HttpClientOperations ops = new HttpClientOperations(() -> channel,
+				ConnectionEvents.emptyListener());
 
 		ops.addHandler("json", new JsonObjectDecoder());
 		channel.writeInbound(new DefaultLastHttpContent(buf));
@@ -106,8 +75,8 @@ public class HttpClientOperationsTest {
 	public void addEncoderReplaysLastHttp() throws Exception {
 		ByteBuf buf = Unpooled.copiedBuffer("{\"foo\":1}", CharsetUtil.UTF_8);
 		EmbeddedChannel channel = new EmbeddedChannel();
-		HttpClientOperations ops = new HttpClientOperations(channel,
-				(response, request) -> null, handler);
+		HttpClientOperations ops = new HttpClientOperations(() -> channel,
+				ConnectionEvents.emptyListener());
 
 		ops.addHandler(new JsonObjectDecoder());
 		channel.writeInbound(new DefaultLastHttpContent(buf));
@@ -122,8 +91,8 @@ public class HttpClientOperationsTest {
 	public void addNamedEncoderReplaysLastHttp() throws Exception {
 		ByteBuf buf = Unpooled.copiedBuffer("{\"foo\":1}", CharsetUtil.UTF_8);
 		EmbeddedChannel channel = new EmbeddedChannel();
-		HttpClientOperations ops = new HttpClientOperations(channel,
-				(response, request) -> null, handler);
+		HttpClientOperations ops = new HttpClientOperations(() -> channel,
+				ConnectionEvents.emptyListener());
 
 		ops.addHandler("json", new JsonObjectDecoder());
 		channel.writeInbound(new DefaultLastHttpContent(buf));
@@ -140,13 +109,13 @@ public class HttpClientOperationsTest {
 		channel.pipeline().addFirst(NettyPipeline.SslHandler, new ChannelHandlerAdapter() {
 		});
 
-		HttpClientOperations ops1 = new HttpClientOperations(channel,
-				(response, request) -> null, handler);
+		HttpClientOperations ops1 = new HttpClientOperations(() -> channel,
+				ConnectionEvents.emptyListener());
 		ops1.followRedirect();
 		ops1.failOnClientError(false);
 		ops1.failOnServerError(false);
 
-		HttpClientOperations ops2 = new HttpClientOperations(channel, ops1);
+		HttpClientOperations ops2 = new HttpClientOperations(ops1);
 
 		assertSame(ops1.channel(), ops2.channel());
 		assertSame(ops1.started, ops2.started);

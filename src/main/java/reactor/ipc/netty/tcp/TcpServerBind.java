@@ -47,7 +47,7 @@ final class TcpServerBind extends TcpServer {
 
 	@Override
 	public Mono<? extends DisposableServer> bind(ServerBootstrap b) {
-		ChannelOperations.OnNew ops = BootstrapHandlers.channelOperationFactory(b);
+		ChannelOperations.OnSetup ops = BootstrapHandlers.channelOperationFactory(b);
 
 		if (b.config()
 		     .group() == null) {
@@ -59,7 +59,7 @@ final class TcpServerBind extends TcpServer {
 		}
 
 		return Mono.create(sink -> {
-			DisposableTcpServer state = new DisposableTcpServer(sink, ops);
+			DisposableBind state = new DisposableBind(sink, ops);
 
 			BootstrapHandlers.finalize(b, state);
 
@@ -67,21 +67,21 @@ final class TcpServerBind extends TcpServer {
 		});
 	}
 
-	static final class DisposableTcpServer
+	static final class DisposableBind
 			implements DisposableServer, ChannelFutureListener, ConnectionEvents {
 
-		static final Logger log = Loggers.getLogger(DisposableTcpServer.class);
+		static final Logger log = Loggers.getLogger(DisposableBind.class);
 
 		final MonoSink<DisposableServer>  sink;
-		final ChannelOperations.OnNew     opsFactory;
+		final ChannelOperations.OnSetup   opsFactory;
 		final DirectProcessor<Connection> connections;
 
 		ChannelFuture f;
 
-		DisposableTcpServer(MonoSink<DisposableServer> sink,
-				ChannelOperations.OnNew opsFactory) {
+		DisposableBind(MonoSink<DisposableServer> sink,
+				ChannelOperations.OnSetup opsFactory) {
 			this.sink = sink;
-			this.opsFactory = opsFactory;
+			this.opsFactory = Objects.requireNonNull(opsFactory, "opsFactory");
 			this.connections = DirectProcessor.create();
 		}
 
@@ -114,21 +114,8 @@ final class TcpServerBind extends TcpServer {
 		}
 
 		@Override
-		public void onConnection(Connection connection) {
-			log.debug("onConnection({})", connection);
-			connections.onNext(connection);
-		}
-
-		@Override
-		public void onSetup(Channel channel, Object msg) {
-			if (opsFactory.createOnConnected()) {
-				opsFactory.create(channel, this, msg)
-				          .register();
-			}
-		}
-
-		@Override
 		public void onDispose(Channel channel) {
+			log.debug("onConnectionDispose({})", channel);
 			if (!channel.isActive()) {
 				return;
 			}
@@ -138,8 +125,23 @@ final class TcpServerBind extends TcpServer {
 		}
 
 		@Override
-		public void onError(Channel channel, Throwable error) {
+		public void onReceiveError(Channel channel, Throwable error) {
+			log.error("onConnectionReceiveError({})", channel);
 			onDispose(channel);
+		}
+
+		@Override
+		public void onSetup(Channel channel, Object msg) {
+			if (opsFactory.createOnConnected()) {
+				log.debug("onConnectionSetup({})", channel);
+				opsFactory.create(() -> channel, this, msg);
+			}
+		}
+
+		@Override
+		public void onStart(Connection connection) {
+			log.debug("onConnectionStart({})", connection.channel());
+			connections.onNext(connection);
 		}
 
 		@Override
@@ -176,16 +178,6 @@ final class TcpServerBind extends TcpServer {
 				log.debug("Started server on: {}", future.toString());
 			}
 			this.f = (ChannelFuture) future;
-
-			if (future.isDone()) {
-				try {
-					operationComplete((ChannelFuture) future);
-				}
-				catch (Exception e) {
-					sink.error(e);
-				}
-				return;
-			}
 
 			f.addListener(this)
 			 .channel()

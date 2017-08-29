@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.udp;
+package reactor.ipc.netty.tcp;
 
 import java.io.IOException;
 import java.util.Objects;
@@ -24,11 +24,9 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.EventLoopGroup;
 import io.netty.util.concurrent.Future;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoSink;
-import reactor.core.scheduler.Schedulers;
 import reactor.ipc.netty.Connection;
 import reactor.ipc.netty.ConnectionEvents;
 import reactor.ipc.netty.channel.BootstrapHandlers;
@@ -41,23 +39,21 @@ import reactor.util.context.Context;
 /**
  * @author Stephane Maldini
  */
-final class UdpClientBind extends UdpClient {
+final class TcpClientConnect extends TcpClient {
 
-	static final UdpClientBind INSTANCE = new UdpClientBind();
+	static final TcpClientConnect INSTANCE = new TcpClientConnect();
 
 	@Override
-	protected Mono<? extends Connection> bind(Bootstrap b) {
+	public Mono<? extends Connection> connect(Bootstrap b) {
 		ChannelOperations.OnSetup ops = BootstrapHandlers.channelOperationFactory(b);
 
-		//Default group and channel
 		if (b.config()
 		     .group() == null) {
 
-			EventLoopGroup elg =
-					DEFAULT_UDP_LOOPS.onClient(LoopResources.DEFAULT_NATIVE);
-
-			b.group(elg)
-			 .channel(DEFAULT_UDP_LOOPS.onDatagramChannel(elg));
+			TcpClientRunOn.configure(b,
+					LoopResources.DEFAULT_NATIVE,
+					TcpResources.get(),
+					TcpUtils.findSslContext(b));
 		}
 
 		return Mono.create(sink -> {
@@ -65,21 +61,15 @@ final class UdpClientBind extends UdpClient {
 
 			BootstrapHandlers.finalize(b, disposableConnect);
 
-			disposableConnect.setFuture(b.bind());
+			disposableConnect.setFuture(b.connect());
 		});
+
 	}
-
-	static final int           DEFAULT_UDP_THREAD_COUNT = Integer.parseInt(System.getProperty(
-			"reactor.udp.ioThreadCount",
-			"" + Schedulers.DEFAULT_POOL_SIZE));
-
-	static final LoopResources DEFAULT_UDP_LOOPS        =
-			LoopResources.create("udp", DEFAULT_UDP_THREAD_COUNT, true);
 
 	/**
 	 * A {@link DisposableConnect} is bound to a user-facing {@link MonoSink}
 	 */
-	static class DisposableConnect
+	static final class DisposableConnect
 			implements Connection, ConnectionEvents, ChannelFutureListener {
 
 		static final Logger log = Loggers.getLogger(DisposableConnect.class);
@@ -88,7 +78,7 @@ final class UdpClientBind extends UdpClient {
 		final ChannelOperations.OnSetup opsFactory;
 
 		ChannelFuture f;
-		Channel       channel;
+		Channel channel;
 
 		DisposableConnect(MonoSink<Connection> sink,
 				ChannelOperations.OnSetup opsFactory) {

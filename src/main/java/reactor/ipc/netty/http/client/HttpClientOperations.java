@@ -19,6 +19,7 @@ package reactor.ipc.netty.http.client;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -28,7 +29,6 @@ import java.util.function.Consumer;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufHolder;
-import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -69,11 +69,11 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Operators;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.ConnectionEvents;
 import reactor.ipc.netty.FutureMono;
 import reactor.ipc.netty.NettyInbound;
 import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.NettyPipeline;
-import reactor.ipc.netty.channel.ChannelSink;
 import reactor.ipc.netty.http.Cookies;
 import reactor.ipc.netty.http.HttpOperations;
 import reactor.ipc.netty.http.websocket.WebsocketInbound;
@@ -88,15 +88,17 @@ import reactor.util.Loggers;
 class HttpClientOperations extends HttpOperations<NettyInbound, NettyOutbound>
 		implements HttpClientResponse, HttpClientRequest {
 
-	static HttpOperations bindHttp(Channel channel, ChannelSink<?> context) {
-		ChannelPipeline pipeline = channel.pipeline();
+	static HttpOperations bindHttp(Connection connection, ConnectionEvents listener) {
+		ChannelPipeline pipeline = connection.channel()
+		                                     .pipeline();
 
 		pipeline.addLast(NettyPipeline.HttpDecoder, new HttpResponseDecoder())
 		        .addLast(NettyPipeline.HttpEncoder, new HttpRequestEncoder());
 
-		HttpClientOperations ops = new HttpClientOperations(channel, context);
+		HttpClientOperations ops = new HttpClientOperations(connection, listener);
 
-		if (channel.attr(ACCEPT_GZIP)
+		if (connection.channel()
+		              .attr(ACCEPT_GZIP)
 		           .get()) {
 			pipeline.addAfter(NettyPipeline.HttpDecoder,
 					NettyPipeline.HttpDecompressor,
@@ -125,8 +127,8 @@ class HttpClientOperations extends HttpOperations<NettyInbound, NettyOutbound>
 	boolean serverError = true;
 	boolean redirectable;
 
-	HttpClientOperations(Channel channel, HttpClientOperations replaced) {
-		super(channel, replaced);
+	HttpClientOperations(HttpClientOperations replaced) {
+		super(replaced);
 		this.started = replaced.started;
 		this.redirectedFrom = replaced.redirectedFrom;
 		this.isSecure = replaced.isSecure;
@@ -139,12 +141,14 @@ class HttpClientOperations extends HttpOperations<NettyInbound, NettyOutbound>
 		this.serverError = replaced.serverError;
 	}
 
-	HttpClientOperations(Channel channel, ChannelSink<?> context) {
-		super(channel, context);
-		this.isSecure = channel.pipeline()
+	HttpClientOperations(Connection connection, ConnectionEvents listener) {
+		super(connection, listener);
+		this.isSecure = connection.channel()
+		                          .pipeline()
 		                       .get(NettyPipeline.SslHandler) != null;
-		String[] redirects = channel.attr(REDIRECT_ATTR_KEY)
-		                            .get();
+		String[] redirects = connection.channel()
+		                               .attr(REDIRECT_ATTR_KEY)
+		                               .get();
 		this.redirectedFrom = redirects == null ? EMPTY_REDIRECTIONS : redirects;
 		this.nettyRequest =
 				new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, "/");
@@ -393,18 +397,34 @@ class HttpClientOperations extends HttpOperations<NettyInbound, NettyOutbound>
 		return new WebsocketOutbound() {
 
 			@Override
+			public ByteBufAllocator alloc() {
+				return HttpClientOperations.this.alloc();
+			}
+
+			@Override
+			public NettyOutbound sendFile(Path file, long position, long count) {
+				return then(HttpClientOperations.this.sendFile(file, position, count));
+			}
+
+			@Override
+			public NettyOutbound sendFileChunked(Path file) {
+				return then(HttpClientOperations.this.sendFileChunked(file));
+			}
+
+			@Override
+			public NettyOutbound sendObject(Publisher<?> dataStream) {
+				return then(HttpClientOperations.this.sendObject(dataStream));
+			}
+
+			@Override
 			public String selectedSubprotocol() {
-				return null;
+				return subprotocols;
 			}
 
 			@Override
-			public NettyOutbound withConnection(Consumer<? super Connection> onConnection) {
-				return null;
-			}
-
-			@Override
-			public Connection connection() {
-				return HttpClientOperations.this;
+			public WebsocketOutbound withConnection(Consumer<? super Connection> onConnection) {
+				onConnection.accept(connection());
+				return this;
 			}
 
 			@Override
@@ -488,7 +508,7 @@ class HttpClientOperations extends HttpOperations<NettyInbound, NettyOutbound>
 	@Override
 	protected void onOutboundError(Throwable err) {
 		if(Connection.isPersistent(channel()) && responseState == null){
-			listener().onError(channel(), err);
+			listener().onReceiveError(channel(), err);
 			onHandlerTerminate();
 			return;
 		}
@@ -537,7 +557,7 @@ class HttpClientOperations extends HttpOperations<NettyInbound, NettyOutbound>
 
 			if (checkResponseCode(response)) {
 				prefetchMore(ctx);
-				listener().onConnection(this);
+				listener().onStart(this);
 			}
 			if (msg instanceof FullHttpResponse) {
 				super.onInboundNext(ctx, msg);
@@ -596,7 +616,7 @@ class HttpClientOperations extends HttpOperations<NettyInbound, NettyOutbound>
 									.toString());
 				}
 				Exception ex = new HttpClientException(uri(), response);
-				listener().onError(channel(), ex);
+				listener().onReceiveError(channel(), ex);
 				onHandlerTerminate();
 				return false;
 			}
@@ -611,7 +631,7 @@ class HttpClientOperations extends HttpOperations<NettyInbound, NettyOutbound>
 							response.toString());
 				}
 				Exception ex = new HttpClientException(uri(), response);
-				listener().onError(channel(), ex);
+				listener().onReceiveError(channel(), ex);
 				onHandlerTerminate();
 				return false;
 			}
@@ -626,7 +646,7 @@ class HttpClientOperations extends HttpOperations<NettyInbound, NettyOutbound>
 						        .toString());
 			}
 			Exception ex = new RedirectClientException(uri(), response);
-			listener().onError(channel(), ex);
+			listener().onReceiveError(channel(), ex);
 			onHandlerTerminate();
 			return false;
 		}

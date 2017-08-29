@@ -86,6 +86,11 @@ final class DefaultPoolResources implements PoolResources {
 		}
 	}
 
+	@Override
+	public boolean isPooling(SocketAddress address) {
+		return channelPools.containsKey(address);
+	}
+
 	final static class Pool extends AtomicBoolean
 			implements ChannelPoolHandler, ChannelPool, ChannelHealthChecker {
 
@@ -172,9 +177,7 @@ final class DefaultPoolResources implements PoolResources {
 						ch.toString(),
 						activeConnections);
 			}
-			if (onChannelCreate != null) {
-				onChannelCreate.accept(ch);
-			}
+			onChannelCreate.accept(ch);
 		}
 
 		@Override

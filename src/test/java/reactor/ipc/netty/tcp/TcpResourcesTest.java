@@ -74,6 +74,11 @@ public class TcpResourcesTest {
 			}
 
 			@Override
+			public boolean isPooling(SocketAddress address) {
+				return false;
+			}
+
+			@Override
 			public boolean isDisposed() {
 				return poolDisposed.get();
 			}

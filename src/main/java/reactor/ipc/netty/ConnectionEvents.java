@@ -27,8 +27,8 @@ import reactor.util.context.Context;
  * A normal event cycle is as follow :
  * <ol>
  *     <li>onSetup</li>
- *     <li>onConnection?</li>
- *     <li>onError?</li>
+ *     <li>onStart?</li>
+ *     <li>onReceiveError?</li>
  *     <li>onDispose</li>
  * </ol>
  *
@@ -56,13 +56,6 @@ public interface ConnectionEvents {
 	}
 
 	/**
-	 * React after remote channel connection setup when promoted to {@link Connection}
-	 *
-	 * @param connection the active {@link Connection}
-	 */
-	void onConnection(Connection connection);
-
-	/**
 	 * React on remote channel resource cleanup
 	 *
 	 * @param channel the remote channel
@@ -70,12 +63,12 @@ public interface ConnectionEvents {
 	void onDispose(Channel channel);
 
 	/**
-	 * React on remote channel fatal error
+	 * React on remote channel read fatal error
 	 *
 	 * @param channel the remote channel
 	 * @param error the failing cause
 	 */
-	void onError(Channel channel, Throwable error);
+	void onReceiveError(Channel channel, Throwable error);
 
 	/**
 	 * React on remote channel connection setup eventually given an initial packet (e.g.
@@ -85,4 +78,11 @@ public interface ConnectionEvents {
 	 * @param msg an optional initial decoded message
 	 */
 	void onSetup(Channel channel, @Nullable Object msg);
+
+	/**
+	 * React after remote channel connection setup when promoted to {@link Connection}
+	 *
+	 * @param connection the active {@link Connection}
+	 */
+	void onStart(Connection connection);
 }

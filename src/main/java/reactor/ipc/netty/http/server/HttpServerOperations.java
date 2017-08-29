@@ -26,7 +26,6 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
@@ -61,7 +60,6 @@ import reactor.ipc.netty.ConnectionEvents;
 import reactor.ipc.netty.FutureMono;
 import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.NettyPipeline;
-import reactor.ipc.netty.channel.ChannelSink;
 import reactor.ipc.netty.http.Cookies;
 import reactor.ipc.netty.http.HttpOperations;
 import reactor.ipc.netty.http.websocket.WebsocketInbound;
@@ -80,16 +78,18 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 		implements HttpServerRequest, HttpServerResponse {
 
 	@SuppressWarnings("unchecked")
-	static HttpServerOperations bindHttp(Channel channel,
+	static HttpServerOperations bindHttp(Connection connection,
 			ConnectionEvents context,
 			Object msg) {
 
-		ChannelPipeline p = channel.pipeline();
+		ChannelPipeline p = connection.channel()
+		                              .pipeline();
 
 		p.addLast(NettyPipeline.HttpDecoder, new HttpRequestDecoder())
 		 .addLast(NettyPipeline.HttpEncoder,new HttpResponseEncoder());
 
-		Attribute<Integer> minCompressionSize = channel.attr(PRODUCE_GZIP);
+		Attribute<Integer> minCompressionSize = connection.channel()
+		                                                  .attr(PRODUCE_GZIP);
 
 
 		if(minCompressionSize != null && minCompressionSize.get() >= 0) {
@@ -98,7 +98,7 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 
 		p.addLast(NettyPipeline.HttpServerHandler, new HttpServerHandler(context));
 
-		return new HttpServerOperations(channel, context, (HttpRequest) msg);
+		return new HttpServerOperations(connection, context, (HttpRequest) msg);
 	}
 
 	final HttpResponse nettyResponse;
@@ -108,8 +108,8 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 
 	Function<? super String, Map<String, String>> paramsResolver;
 
-	HttpServerOperations(Channel ch, HttpServerOperations replaced) {
-		super(ch, replaced);
+	HttpServerOperations(HttpServerOperations replaced) {
+		super(replaced);
 		this.cookieHolder = replaced.cookieHolder;
 		this.responseHeaders = replaced.responseHeaders;
 		this.nettyResponse = replaced.nettyResponse;
@@ -117,7 +117,7 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 		this.nettyRequest = replaced.nettyRequest;
 	}
 
-	HttpServerOperations(Channel ch,
+	HttpServerOperations(Connection ch,
 			ConnectionEvents context,
 			HttpRequest nettyRequest) {
 		super(ch, context);
@@ -466,7 +466,8 @@ class HttpServerOperations extends HttpOperations<HttpServerRequest, HttpServerR
 			BiFunction<? super WebsocketInbound, ? super WebsocketOutbound, ? extends Publisher<Void>> websocketHandler) {
 		Objects.requireNonNull(websocketHandler, "websocketHandler");
 		if (markSentHeaders()) {
-			HttpServerWSOperations ops = new HttpServerWSOperations(url, protocols, this);
+			WebsocketServerOperations ops =
+					new WebsocketServerOperations(url, protocols, this);
 
 			if (replace(ops)) {
 				return FutureMono.from(ops.handshakerResult)
