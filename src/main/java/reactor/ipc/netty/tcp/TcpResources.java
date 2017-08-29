@@ -19,7 +19,8 @@ package reactor.ipc.netty.tcp;
 import java.net.SocketAddress;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
-import java.util.function.Consumer;
+
+import javax.annotation.Nullable;
 
 import javax.annotation.Nullable;
 
@@ -151,10 +152,8 @@ public class TcpResources implements PoolResources, LoopResources {
 
 	@Override
 	public ChannelPool selectOrCreate(SocketAddress address,
-			Bootstrap bootstrap,
-			Consumer<? super Channel> onChannelCreate,
-			EventLoopGroup group) {
-		return defaultPools.selectOrCreate(address, bootstrap, onChannelCreate, group);
+			Bootstrap bootstrap, EventLoopGroup group) {
+		return defaultPools.selectOrCreate(address, bootstrap, group);
 	}
 
 	@Override

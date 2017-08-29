@@ -23,6 +23,8 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
+import javax.annotation.Nullable;
+
 import io.netty.handler.proxy.HttpProxyHandler;
 import io.netty.handler.proxy.ProxyHandler;
 import io.netty.handler.proxy.Socks4ProxyHandler;
@@ -143,7 +145,7 @@ public final class ProxyProvider {
 	 *
 	 * @return true if candidate to proxy
 	 */
-	public boolean shouldProxy(String hostName) {
+	public boolean shouldProxy(@Nullable String hostName) {
 		return nonProxyHosts == null || hostName == null || !nonProxyHosts.matcher(
 				hostName)
 		                                                                  .matches();

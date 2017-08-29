@@ -46,15 +46,7 @@ final class TcpClientProxy extends TcpClientOperator {
 	@Override
 	@SuppressWarnings("unchecked")
 	public Bootstrap configure() {
-		Bootstrap b = source.configure();
-
-		b = TcpUtils.updateProxySupport(b, proxyProvider);
-
-		if (b.config()
-		     .resolver() == DefaultAddressResolverGroup.INSTANCE) {
-			return b.resolver(NoopAddressResolverGroup.INSTANCE);
-		}
-		return b;
+		return TcpUtils.updateProxySupport(source.configure(), proxyProvider);
 	}
 
 	@Override

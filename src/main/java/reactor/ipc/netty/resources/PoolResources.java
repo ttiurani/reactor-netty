@@ -17,10 +17,8 @@
 package reactor.ipc.netty.resources;
 
 import java.net.SocketAddress;
-import java.util.function.Consumer;
 
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.Channel;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.pool.ChannelPool;
 import io.netty.channel.pool.FixedChannelPool;
@@ -147,13 +145,10 @@ public interface PoolResources extends Disposable {
 	 * new {@link ChannelPool}
 	 * @param bootstrap the {@link Bootstrap} supplier if a {@link ChannelPool} must be
 	 * created
-	 * @param onChannelCreate callback only when new connection is made
 	 * @return an existing or new {@link ChannelPool}
 	 */
 	ChannelPool selectOrCreate(SocketAddress address,
-			Bootstrap bootstrap,
-			Consumer<? super Channel> onChannelCreate,
-			EventLoopGroup group);
+			Bootstrap bootstrap, EventLoopGroup group);
 
 	/**
 	 * Return true if a persistent connection exist to this address

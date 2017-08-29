@@ -82,7 +82,7 @@ public class UdpServerTests {
 
 		final Connection server = UdpClient.create()
 		                                   .port(port)
-		                                   .h((in, out) -> {
+		                                   .handler((in, out) -> {
 			                                   in.receive()
 			                                     .asByteArray()
 			                                     .log()

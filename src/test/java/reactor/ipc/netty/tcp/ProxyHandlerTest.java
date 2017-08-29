@@ -14,36 +14,42 @@
  * limitations under the License.
  */
 
-package reactor.ipc.netty.channel;
+package reactor.ipc.netty.tcp;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import java.util.Objects;
+import java.util.function.Consumer;
 
-import java.net.InetSocketAddress;
-
-import org.junit.Test;
-
+import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.Channel;
 import io.netty.channel.embedded.EmbeddedChannel;
+import org.junit.Test;
 import reactor.ipc.netty.NettyPipeline;
-import reactor.ipc.netty.options.ClientOptions;
+import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.tcp.ProxyProvider.Proxy;
 import reactor.ipc.netty.tcp.UnpooledClientChannelSink;
 
-public class UnpooledClientChannelSinkTest {
+import static org.assertj.core.api.Assertions.assertThat;
+
+public class ProxyHandlerTest {
 
 	@Test
 	public void addProxyHandler() {
-		ClientOptions.Builder<?> builder = ClientOptions.builder();
+		Bootstrap b = TcpClient.create()
+		                       .proxy(ops -> ops.type(Proxy.HTTP)
+		                                        .host("proxy")
+		                                        .port(8080))
+		                       .configure();
+
+
 		EmbeddedChannel channel = new EmbeddedChannel();
 
-		UnpooledClientChannelSink.addProxyHandler(builder.build(), channel.pipeline(),
-				new InetSocketAddress("localhost", 8080));
-		assertThat(channel.pipeline().get(NettyPipeline.ProxyHandler)).isNull();
+		Consumer<? super Channel> c = BootstrapHandlers.findConfiguration("proxy",
+				b.config()
+				 .handler());
 
-		builder.proxy(ops -> ops.type(Proxy.HTTP)
-		                        .host("proxy")
-		                        .port(8080));
-		UnpooledClientChannelSink.addProxyHandler(builder.build(), channel.pipeline(),
-				new InetSocketAddress("localhost", 8080));
+		Objects.requireNonNull(c, "No proxy configuration!");
 		assertThat(channel.pipeline().get(NettyPipeline.ProxyHandler)).isNull();
+		c.accept(channel);
+		assertThat(channel.pipeline().get(NettyPipeline.ProxyHandler)).isNotNull();
 	}
 }

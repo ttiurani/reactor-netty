@@ -17,10 +17,8 @@ package reactor.ipc.netty.tcp;
 
 import java.net.SocketAddress;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.Channel;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.pool.ChannelPool;
 import org.junit.Before;
@@ -64,8 +62,7 @@ public class TcpResourcesTest {
 		poolResources = new PoolResources() {
 			@Override
 			public ChannelPool selectOrCreate(SocketAddress address,
-					Bootstrap bootstrap,
-					Consumer<? super Channel> onChannelCreate, EventLoopGroup group) {
+					Bootstrap bootstrap, EventLoopGroup group) {
 				return null;
 			}
 

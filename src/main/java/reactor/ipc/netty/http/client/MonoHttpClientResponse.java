@@ -55,7 +55,7 @@ final class MonoHttpClientResponse extends Mono<HttpClientResponse> implements
 
 	MonoHttpClientResponse(HttpClient parent, HttpMethod method) {
 		this.parent = parent;
-		this.bootstrap = parent.tcpConfiguration().configure();
+
 		try {
 			this.startURI = new URI(formatSchemeAndHost());
 		}

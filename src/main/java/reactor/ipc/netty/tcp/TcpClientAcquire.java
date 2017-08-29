@@ -18,7 +18,6 @@ package reactor.ipc.netty.tcp;
 
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
-import java.util.function.Consumer;
 
 import javax.annotation.Nullable;
 
@@ -29,7 +28,6 @@ import io.netty.channel.pool.ChannelPool;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 import io.netty.util.concurrent.SucceededFuture;
-import org.reactivestreams.Publisher;
 import reactor.core.publisher.DirectProcessor;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoSink;
@@ -53,9 +51,6 @@ final class TcpClientAcquire extends TcpClient {
 
 	static final TcpClientAcquire INSTANCE = new TcpClientAcquire(TcpResources.get());
 
-	static final Consumer<Channel> EMPTY = ch -> {
-	};
-
 	final PoolResources poolResources;
 
 	TcpClientAcquire(PoolResources poolResources) {
@@ -77,26 +72,9 @@ final class TcpClientAcquire extends TcpClient {
 		}
 
 		return Mono.create(sink -> {
-
-			ChannelHandler handler = b.config()
-			                          .handler();
-
-			Consumer<? super Channel> c;
-
-			if (!poolResources.isPooling(b.config()
-			                              .remoteAddress())) {
-				c = ch -> ch.pipeline()
-				            .addFirst(handler);
-			}
-			else {
-				c = EMPTY;
-			}
-
 			ChannelPool pool = poolResources.selectOrCreate(b.config()
 			                                                 .remoteAddress(),
-					b,
-					c,
-					b.config()
+					b, b.config()
 					 .group());
 
 			DisposableAcquire disposableAcquire = new DisposableAcquire(sink, ops, pool);

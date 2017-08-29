@@ -99,7 +99,7 @@ public abstract class TcpClient {
 	 *
 	 * @return a {@link TcpClient}
 	 */
-	public static TcpClient createSingle() {
+	public static TcpClient newConnection() {
 		return TcpClientConnect.INSTANCE;
 	}
 
@@ -127,9 +127,8 @@ public abstract class TcpClient {
 	 *
 	 * @see Bootstrap#attr(AttributeKey, Object)
 	 */
-	public final  <T> TcpClient attr(AttributeKey<T> key, T value) {
+	public final  <T> TcpClient attr(AttributeKey<T> key, @Nullable T value) {
 		Objects.requireNonNull(key, "key");
-		Objects.requireNonNull(value, "value");
 		return bootstrap(b -> b.attr(key, value));
 	}
 

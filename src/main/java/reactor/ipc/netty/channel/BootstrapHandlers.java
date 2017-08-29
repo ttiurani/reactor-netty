@@ -115,6 +115,31 @@ public abstract class BootstrapHandlers {
 	}
 
 	/**
+	 * Find the given typed configuration consumer or return null;
+	 *
+	 * @param name the name of configuration to find
+	 * @param handler optional handler to scan
+	 *
+	 * @return a configuration or null
+	 */
+	@SuppressWarnings("unchecked")
+	@Nullable
+	public static Consumer<? super Channel> findConfiguration(String name,
+			@Nullable ChannelHandler handler) {
+		Objects.requireNonNull(name, "configuration type");
+		if (handler instanceof BootstrapPipelineHandler) {
+			BootstrapPipelineHandler rph =
+					(BootstrapPipelineHandler) handler;
+			for (int i = 0; i < rph.size(); i++) {
+				if (name.equalsIgnoreCase(rph.get(i).name)) {
+					return rph.get(i).consumer;
+				}
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * Remove a configuration given its unique name from the given {@link
 	 * ServerBootstrap}
 	 *

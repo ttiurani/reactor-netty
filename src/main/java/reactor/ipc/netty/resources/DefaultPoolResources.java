@@ -20,10 +20,10 @@ import java.net.SocketAddress;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Consumer;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.pool.ChannelHealthChecker;
 import io.netty.channel.pool.ChannelPool;
@@ -59,9 +59,7 @@ final class DefaultPoolResources implements PoolResources {
 
 	@Override
 	public ChannelPool selectOrCreate(SocketAddress remote,
-			Bootstrap b,
-			Consumer<? super Channel> onChannelCreate,
-			EventLoopGroup group) {
+			Bootstrap b, EventLoopGroup group) {
 		SocketAddress address = remote;
 		for (; ; ) {
 			Pool pool = channelPools.get(remote);
@@ -78,7 +76,7 @@ final class DefaultPoolResources implements PoolResources {
 			if (log.isDebugEnabled()) {
 				log.debug("New {} client pool for {}", name, address);
 			}
-			pool = new Pool(b, provider, onChannelCreate, group);
+			pool = new Pool(b, provider, group);
 			if (channelPools.putIfAbsent(address, pool) == null) {
 				return pool;
 			}
@@ -86,16 +84,11 @@ final class DefaultPoolResources implements PoolResources {
 		}
 	}
 
-	@Override
-	public boolean isPooling(SocketAddress address) {
-		return channelPools.containsKey(address);
-	}
-
 	final static class Pool extends AtomicBoolean
 			implements ChannelPoolHandler, ChannelPool, ChannelHealthChecker {
 
 		final ChannelPool               pool;
-		final Consumer<? super Channel> onChannelCreate;
+		final ChannelHandler onChannelCreate;
 		final EventLoopGroup            defaultGroup;
 
 		final AtomicInteger activeConnections = new AtomicInteger();
@@ -106,10 +99,9 @@ final class DefaultPoolResources implements PoolResources {
 		@SuppressWarnings("unchecked")
 		Pool(Bootstrap bootstrap,
 				PoolFactory provider,
-				Consumer<? super Channel> onChannelCreate,
 				EventLoopGroup group) {
+			this.onChannelCreate = bootstrap.config().handler();
 			this.pool = provider.newPool(bootstrap, this, this);
-			this.onChannelCreate = onChannelCreate;
 			this.defaultGroup = group;
 			HEALTHY = group.next()
 			               .newSucceededFuture(true);
@@ -177,7 +169,8 @@ final class DefaultPoolResources implements PoolResources {
 						ch.toString(),
 						activeConnections);
 			}
-			onChannelCreate.accept(ch);
+			ch.pipeline()
+			  .addFirst(onChannelCreate);
 		}
 
 		@Override
