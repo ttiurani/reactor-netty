@@ -280,7 +280,7 @@ public abstract class HttpClient {
 	 *
 	 * @return a {@link RequestSender} ready to consume for response
 	 */
-	public final ResponseReceiver get() {
+	public final ResponseReceiver<?> get() {
 		return request(HttpMethod.GET);
 	}
 
@@ -289,7 +289,7 @@ public abstract class HttpClient {
 	 *
 	 * @return a {@link RequestSender} ready to consume for response
 	 */
-	public final ResponseReceiver head() {
+	public final ResponseReceiver<?> head() {
 		return request(HttpMethod.HEAD);
 	}
 
@@ -319,7 +319,7 @@ public abstract class HttpClient {
 	 *
 	 * @return a {@link RequestSender} ready to consume for response
 	 */
-	public final ResponseReceiver options() {
+	public final ResponseReceiver<?> options() {
 		return request(HttpMethod.OPTIONS);
 	}
 

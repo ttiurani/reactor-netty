@@ -19,7 +19,6 @@ package reactor.ipc.netty.channel;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
-
 import javax.annotation.Nullable;
 
 import io.netty.buffer.ByteBuf;
@@ -158,6 +157,10 @@ final class FluxReceive extends Flux<Object> implements Subscription, Disposable
 			boolean d = inboundDone;
 
 			if (a == null) {
+				if (isCancelled()) {
+					cleanQueue(q);
+					return;
+				}
 				if (d && getPending() == 0) {
 					Throwable ex = inboundError;
 					if (ex != null) {

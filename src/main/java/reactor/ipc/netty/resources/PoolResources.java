@@ -150,12 +150,6 @@ public interface PoolResources extends Disposable {
 	ChannelPool selectOrCreate(SocketAddress address,
 			Bootstrap bootstrap, EventLoopGroup group);
 
-	/**
-	 * Return true if a persistent connection exist to this address
-	 *
-	 * @return true if a persistent connection exist to this address
-	 */
-	boolean isPooling(SocketAddress address);
 
 	@Override
 	default void dispose() {

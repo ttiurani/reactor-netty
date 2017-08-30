@@ -26,7 +26,6 @@ import org.junit.Test;
 import reactor.ipc.netty.NettyPipeline;
 import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.ipc.netty.tcp.ProxyProvider.Proxy;
-import reactor.ipc.netty.tcp.UnpooledClientChannelSink;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

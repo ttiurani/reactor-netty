@@ -171,6 +171,13 @@ configure(rootProject) { project ->
 	}
   }
 
+  onOutput { descriptor, event ->
+	if (event.message.contains("ResourceLeakDetector")) {
+	  logger.error(
+			  "ERROR: Test: " + descriptor + " produced resource leak: " + event.message)
+	}
+  }
+
   repositories {
 	if (version.endsWith('BUILD-SNAPSHOT') || project.hasProperty('platformVersion')) {
 	  if (System.getenv ()["bamboo_buildNumber"] == null) {

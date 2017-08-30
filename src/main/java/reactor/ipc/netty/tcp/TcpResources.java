@@ -19,9 +19,6 @@ package reactor.ipc.netty.tcp;
 import java.net.SocketAddress;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
-
-import javax.annotation.Nullable;
-
 import javax.annotation.Nullable;
 
 import io.netty.bootstrap.Bootstrap;
@@ -154,11 +151,6 @@ public class TcpResources implements PoolResources, LoopResources {
 	public ChannelPool selectOrCreate(SocketAddress address,
 			Bootstrap bootstrap, EventLoopGroup group) {
 		return defaultPools.selectOrCreate(address, bootstrap, group);
-	}
-
-	@Override
-	public boolean isPooling(SocketAddress address) {
-		return defaultPools.isPooling(address);
 	}
 
 	@Override

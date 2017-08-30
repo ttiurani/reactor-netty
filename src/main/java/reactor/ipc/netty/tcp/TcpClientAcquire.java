@@ -71,6 +71,7 @@ final class TcpClientAcquire extends TcpClient {
 					TcpUtils.findSslContext(b));
 		}
 
+
 		return Mono.create(sink -> {
 			ChannelPool pool = poolResources.selectOrCreate(b.config()
 			                                                 .remoteAddress(),
@@ -79,7 +80,6 @@ final class TcpClientAcquire extends TcpClient {
 
 			DisposableAcquire disposableAcquire = new DisposableAcquire(sink, ops, pool);
 
-			BootstrapHandlers.finalize(b, disposableAcquire);
 
 			disposableAcquire.setFuture(pool.acquire());
 		});
@@ -196,7 +196,6 @@ final class TcpClientAcquire extends TcpClient {
 				if (future.isSuccess()) {
 					disposeOperationThenRelease(future.get());
 				}
-				sink.success();
 				return;
 			}
 
@@ -220,6 +219,7 @@ final class TcpClientAcquire extends TcpClient {
 				c.eventLoop()
 				 .execute(() -> connectOrAcquire(c));
 			}
+			onSetup(channel, null);
 		}
 
 		@Override
@@ -294,6 +294,7 @@ final class TcpClientAcquire extends TcpClient {
 			if (log.isDebugEnabled()) {
 				log.debug("Acquired active channel: " + c.toString());
 			}
+
 		}
 
 

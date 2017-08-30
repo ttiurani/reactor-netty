@@ -32,6 +32,8 @@ import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.Promise;
 import io.netty.util.internal.PlatformDependent;
 import reactor.core.publisher.Mono;
+import reactor.ipc.netty.ConnectionEvents;
+import reactor.ipc.netty.channel.BootstrapHandlers;
 import reactor.util.Logger;
 import reactor.util.Loggers;
 
@@ -88,8 +90,9 @@ final class DefaultPoolResources implements PoolResources {
 			implements ChannelPoolHandler, ChannelPool, ChannelHealthChecker {
 
 		final ChannelPool               pool;
-		final ChannelHandler onChannelCreate;
 		final EventLoopGroup            defaultGroup;
+
+		final Bootstrap bootstrap;
 
 		final AtomicInteger activeConnections = new AtomicInteger();
 
@@ -100,7 +103,7 @@ final class DefaultPoolResources implements PoolResources {
 		Pool(Bootstrap bootstrap,
 				PoolFactory provider,
 				EventLoopGroup group) {
-			this.onChannelCreate = bootstrap.config().handler();
+			this.bootstrap = bootstrap;
 			this.pool = provider.newPool(bootstrap, this, this);
 			this.defaultGroup = group;
 			HEALTHY = group.next()
@@ -169,8 +172,11 @@ final class DefaultPoolResources implements PoolResources {
 						ch.toString(),
 						activeConnections);
 			}
+
+			BootstrapHandlers.finalize(bootstrap, ConnectionEvents.emptyListener());
+
 			ch.pipeline()
-			  .addFirst(onChannelCreate);
+			  .addFirst(bootstrap.config().handler());
 		}
 
 		@Override

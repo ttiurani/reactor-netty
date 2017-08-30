@@ -49,6 +49,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.ipc.netty.ByteBufFlux;
 import reactor.ipc.netty.Connection;
+import reactor.ipc.netty.DisposableServer;
 import reactor.ipc.netty.NettyOutbound;
 import reactor.ipc.netty.http.HttpResources;
 import reactor.ipc.netty.http.client.HttpClient;
@@ -63,6 +64,35 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @author Stephane Maldini
  */
 public class HttpServerTests {
+
+	@Test
+	public void defaultHttpPort() {
+		DisposableServer blockingFacade = HttpServer.create()
+		                                            .bindNow();
+		blockingFacade.disposeNow();
+
+		assertThat(blockingFacade.port()).isEqualTo(8080);
+	}
+
+	@Test
+	public void defaultHttpPortWithAddress() {
+		DisposableServer blockingFacade = HttpServer.create()
+		                                            .tcpConfiguration(tcp -> tcp.host("localhost"))
+		                                            .bindNow();
+		blockingFacade.disposeNow();
+
+		assertThat(blockingFacade.port()).isEqualTo(8080);
+	}
+
+	@Test
+	public void httpPortOptionTakesPrecedenceOverBuilderField() {
+		DisposableServer blockingFacade = HttpServer.create()
+		                                            .tcpConfiguration(tcp -> tcp.port(9081))
+		                                            .bindNow();
+		blockingFacade.disposeNow();
+
+		assertThat(blockingFacade.port()).isEqualTo(9081);
+	}
 
 	@Test
 	public void sendFileSecure()
@@ -344,5 +374,54 @@ public class HttpServerTests {
 		assertThat(server.options())
 		          .isNotSameAs(server.options)
 		          .isNotSameAs(server.options());
+	}
+
+	@Test
+	public void startRouter() {
+		DisposableServer facade = HttpServer.create(0)
+
+		                                        .startRouter(routes -> routes.get("/hello",
+				                                        (req, resp) -> resp.sendString(Mono.just("hello!"))));
+
+		try {
+			assertThat(HttpClient.create(facade.getPort())
+			                     .get("/hello")
+			                     .block()
+			                     .status()
+			                     .code()).isEqualTo(200);
+
+			assertThat(HttpClient.create(facade.getPort())
+			                     .get("/helloMan", req -> req.failOnClientError(false))
+			                     .block()
+			                     .status()
+			                     .code()).isEqualTo(404);
+		}
+		finally {
+			facade.shutdown();
+		}
+	}
+
+	@Test
+	public void startRouterAndAwait()
+			throws InterruptedException, ExecutionException, TimeoutException {
+		ExecutorService ex = Executors.newSingleThreadExecutor();
+		AtomicReference<BlockingNettyContext> ref = new AtomicReference<>();
+
+		Future<?> f = ex.submit(() -> HttpServer.create(0)
+		                                        .startRouterAndAwait(routes -> routes.get("/hello", (req, resp) -> resp.sendString(Mono.just("hello!"))),
+				                                        ref::set)
+		);
+
+		//if the server cannot be started, a ExecutionException will be thrown instead
+		assertThatExceptionOfType(TimeoutException.class)
+				.isThrownBy(() -> f.get(1, TimeUnit.SECONDS));
+
+		//the router is not done and is still blocking the thread
+		assertThat(f.isDone()).isFalse();
+		assertThat(ref.get()).isNotNull().withFailMessage("Server is not initialized after 1s");
+
+		//shutdown the router to unblock the thread
+		ref.get().shutdown();
+		assertThat(f.isDone()).isTrue();
 	}
 }
