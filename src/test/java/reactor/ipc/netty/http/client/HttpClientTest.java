@@ -276,6 +276,46 @@ public class HttpClientTest {
 		            .verify(Duration.ofSeconds(30));
 	}
 
+	@Test
+    public void jsonTime() throws Exception {
+        Mono<HttpClientResponse> remote = HttpClient.create()
+                  .get("http://time.jsontest.com",
+                          c -> c.sendHeaders());
+
+        Mono<String> page = remote
+                .flatMapMany(r -> r.receive()
+                               .retain()
+                               .asString()
+                               .limitRate(1))
+                .reduce(String::concat);
+
+        StepVerifier.create(page)
+                .expectNextMatches(s -> s.contains("milliseconds_since_epoch"))
+                .expectComplete()
+                .verify(Duration.ofSeconds(30));
+	}
+
+    @Test
+  	public void hoverflyProxy() throws Exception {
+  	    Mono<HttpClientResponse> remote = HttpClient.create(o -> o.proxy(ops -> ops.type(Proxy.HTTP)
+  	                                                                                   .host("localhost")
+  	                                                                                   .port(8500)))
+  	              .get("http://time.jsontest.com",
+  	                      c -> c.sendHeaders());
+
+  	    Mono<String> page = remote
+  	            .flatMapMany(r -> r.receive()
+                               .retain()
+  	                           .asString()
+  	                           .limitRate(1))
+               .reduce(String::concat);
+        StepVerifier.create(page)
+              .expectNextMatches(s -> s.contains("milliseconds_since_epoch"))
+              .expectComplete()
+              .verify(Duration.ofSeconds(30));
+  	}
+
+
 	//@Test
 	public void postUpload() throws Exception {
 		InputStream f = getClass().getResourceAsStream("/public/index.html");
